@@ -1,0 +1,13 @@
+{
+  "name": "ascam-video-lookup",
+  "version": "1.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy public --project-name ascam-video-lookup"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "type": "module"
+}
