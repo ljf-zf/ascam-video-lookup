@@ -1,100 +1,64 @@
 <!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#090f1b">
-  <meta name="description" content="Tra cứu video đóng gói đơn hàng ASCAM.">
-  <title>ASCAM Video Lookup</title>
-  <link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080e19"><meta name="description" content="Không gian tra cứu video đóng gói ASCAM.">
+  <title>ASCAM Video Lookup · Smart Workspace</title><link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
   <main class="shell">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="ASCAM Video Lookup">
-        <span class="brand-mark"><span>▶</span></span>
-        <span class="brand-copy"><b>Video Lookup</b><small>ASCAM PACKING RECORDS</small></span>
-      </a>
-      <div class="top-actions">
-        <span id="authStatus" class="status-chip"><i></i> Chưa đăng nhập</span>
-        <span id="ascamStatus" class="status-chip status-unknown"><i></i><span>ASCAM chưa kiểm tra</span></span>
-        <button id="logout" class="button button-quiet hidden">Đăng xuất</button>
-      </div>
-    </header>
-
     <section id="loginView" class="login-layout">
-      <div class="login-copy">
-        <div class="eyebrow"><span class="eyebrow-dot"></span> PRIVATE VIDEO WORKSPACE</div>
-        <h1>Trở lại đúng<br><em>khoảnh khắc.</em></h1>
-        <p>Tra cứu lịch sử đóng gói và xem lại video từ hệ thống ASCAM tại cửa hàng.</p>
-        <div class="login-proof"><span>⌁</span> API Token được giữ an toàn ở phía máy chủ.</div>
+      <div class="login-copy"><div class="eyebrow"><span class="eyebrow-dot"></span> PRIVATE VIDEO WORKSPACE</div><h1>Trở lại đúng<br><em>khoảnh khắc.</em></h1><p>Tra cứu lịch sử đóng gói và xem lại video từ hệ thống ASCAM tại cửa hàng.</p><div class="login-proof">♢ API Token được giữ an toàn ở phía máy chủ.</div></div>
+      <form id="loginForm" class="login-card"><div class="card-kicker">SECURE ACCESS</div><h2>Đăng nhập</h2><p>Nhập mật khẩu truy cập riêng của bạn.</p><label for="password">Mật khẩu truy cập</label><input id="password" type="password" autocomplete="current-password" required placeholder="Nhập mật khẩu"><button class="button button-primary button-wide" type="submit">Vào không gian làm việc <span>→</span></button><p id="loginError" class="form-error" aria-live="polite"></p></form>
+    </section>
+
+    <section id="appView" class="app-layout hidden">
+      <div class="mobile-bar"><button id="menuToggle" class="icon-button" aria-label="Mở menu">☰</button><a class="brand" href="#home"><span class="brand-mark">▶</span><span class="brand-copy"><b>Video Lookup</b><small>ASCAM PACKING RECORDS</small></span></a><button id="logout" class="button button-quiet mobile-logout">Thoát</button></div>
+      <div id="sidebarScrim" class="sidebar-scrim"></div>
+      <aside id="sidebar" class="sidebar">
+        <a class="brand side-brand" href="#home"><span class="brand-mark">▶</span><span class="brand-copy"><b>Video Lookup</b><small>SMART WORKSPACE</small></span></a>
+        <div class="side-label">WORKSPACE</div>
+        <nav class="side-nav" aria-label="Điều hướng chính">
+          <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Tổng quan</span></button>
+          <button class="nav-item" data-view="history"><span class="nav-icon">◷</span><span>Lịch sử tìm kiếm</span><span id="historyBadge" class="nav-badge">0</span></button>
+          <button class="nav-item" data-view="bookmarks"><span class="nav-icon">☆</span><span>Đơn cần kiểm tra</span><span id="bookmarkBadge" class="nav-badge">0</span></button>
+        </nav>
+        <div class="sidebar-bottom"><div class="connection-card"><span class="connection-dot"></span><div><b id="authStatus">Chưa đăng nhập</b><small id="ascamStatus">ASCAM chưa kiểm tra</small></div></div><button id="logoutDesktop" class="nav-logout">↪ Đăng xuất</button><div class="side-version">ASCAM VIDEO LOOKUP <b>V1.2.0 · SMART WORKSPACE</b></div></div>
+      </aside>
+
+      <div class="workspace-main">
+        <header class="workspace-topbar"><div><span class="eyebrow">PRIVATE WORKSPACE</span><h2 id="pageTitle">Tổng quan</h2></div><div class="top-actions"><span id="ascamStatusTop" class="status-chip status-unknown"><i></i><span>ASCAM chưa kiểm tra</span></span></div></header>
+        <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+
+        <section id="homeView" class="view-panel">
+          <div class="welcome-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span> PACKING VIDEO SEARCH</div><h1>Tìm lại khoảnh khắc<br><em>đóng gói đơn hàng.</em></h1><p>Tra cứu bằng mã vận đơn đầy đủ hoặc 4 số cuối.</p></div><div class="welcome-mark">▶</div></div>
+          <form id="searchForm" class="search-box"><span class="search-icon">⌕</span><input id="query" type="search" placeholder="Nhập mã vận đơn hoặc 4 số cuối…" autocomplete="off" spellcheck="false"><button class="button button-primary" type="submit">Tìm kiếm <span>→</span></button></form>
+          <div class="search-hint">↵ Nhấn Enter để tìm nhanh <span>·</span> Ví dụ: 4821</div>
+          <section id="resultsSection" class="content-section hidden"><div class="section-heading"><div><div class="eyebrow">MATCHING RECORDS</div><h2>Kết quả tìm kiếm</h2></div><span id="resultCount" class="count-chip">0 kết quả</span></div><div id="results" class="result-list"></div></section>
+          <section id="detailSection" class="detail-layout hidden">
+            <div class="detail-main">
+              <div class="section-heading detail-heading"><div><div class="eyebrow">ORDER DETAILS</div><h2 id="detailCode">Đơn hàng</h2></div><span id="detailStatus" class="state-tag">—</span></div>
+              <div id="orderMeta" class="meta-grid"></div>
+              <div class="detail-toolbar"><div><div class="eyebrow">RECORDING SESSIONS</div><h3>Video ghép đóng gói</h3><span id="sessionCount" class="subtle-count"></span></div><button id="toggleBookmark" class="button button-quiet bookmark-button" type="button">☆ Đánh dấu kiểm tra</button></div>
+              <div id="sessions" class="session-list"></div><div id="sessionNotice" class="inline-hint">Chọn phiên đã hoàn tất để xem video.</div>
+              <button id="createShare" class="button button-primary button-wide" type="button">Tạo link ASC-Cloud <span>↗</span></button><div id="shareResult" class="share-result hidden"></div>
+            </div>
+            <aside class="video-panel"><div class="video-panel-head"><div><div class="eyebrow">MERGED VIDEO</div><h3>Xem lại quá trình đóng gói</h3></div><span class="live-indicator"><i></i> PLAYER</span></div>
+              <div id="videoPlaceholder" class="video-placeholder"><div class="play-orb">▶</div><b>Chưa có video</b><span>Chọn phiên hoàn tất và tạo link ASC-Cloud để xem lại video ghép.</span></div>
+              <div id="videoFrameWrap" class="video-frame hidden"><video id="videoPlayer" controls playsinline preload="metadata"></video></div>
+              <div id="videoLinks" class="video-actions hidden"><a id="openShare" class="button button-secondary" target="_blank" rel="noopener">Mở ASC-Cloud ↗</a><a id="downloadVideo" class="button button-quiet" download>Tải video MP4 ↓</a></div><p class="video-footnote">Video ghép được truyền qua máy chủ bảo mật. Link ASC-Cloud có thời hạn riêng.</p>
+            </aside>
+          </section>
+          <section class="quick-history"><div class="section-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Tra cứu gần đây</h2></div><button class="text-action" data-goto="history">Xem tất cả →</button></div><div id="homeHistory" class="history-list"><span class="empty-history">Chưa có lịch sử tìm kiếm.</span></div></section>
+        </section>
+
+        <section id="historyView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">YOUR ACTIVITY</div><h1>Lịch sử tìm kiếm</h1><p>Mở lại nhanh những đơn hàng mày đã tra cứu trên thiết bị này.</p></div><div class="section-heading"><h2>Các đơn gần đây</h2><button id="clearHistory" class="button button-quiet">Xóa lịch sử</button></div><div id="historyList" class="history-grid"><span class="empty-history">Chưa có lịch sử tìm kiếm.</span></div></section>
+
+        <section id="bookmarksView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">FOLLOW UP</div><h1>Đơn cần kiểm tra</h1><p>Danh sách đơn được đánh dấu để xem lại sau. Dữ liệu lưu trên trình duyệt hiện tại.</p></div><div class="section-heading"><h2>Đã đánh dấu</h2><span id="bookmarkCount" class="count-chip">0 đơn</span></div><div id="bookmarkList" class="history-grid"><span class="empty-history">Chưa có đơn nào được đánh dấu.</span></div></section>
+        <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.2.0 · SMART WORKSPACE</b></span><span>PRIVATE · RESPONSIVE · SECURE</span></footer>
       </div>
-      <form id="loginForm" class="login-card">
-        <div class="card-kicker">SECURE ACCESS</div>
-        <h2>Đăng nhập</h2>
-        <p>Nhập mật khẩu truy cập riêng của bạn.</p>
-        <label for="password">Mật khẩu truy cập</label>
-        <input id="password" type="password" autocomplete="current-password" required placeholder="Nhập mật khẩu">
-        <button class="button button-primary button-wide" type="submit">Vào không gian làm việc <span>→</span></button>
-        <p id="loginError" class="form-error" aria-live="polite"></p>
-      </form>
     </section>
-
-    <section id="appView" class="hidden">
-      <section class="hero">
-        <div class="eyebrow"><span class="eyebrow-dot"></span> PACKING VIDEO SEARCH</div>
-        <h1>Tìm lại khoảnh khắc<br><em>đóng gói đơn hàng.</em></h1>
-        <p class="hero-subtitle">Nhập mã vận đơn đầy đủ hoặc 4 số cuối để bắt đầu.</p>
-        <form id="searchForm" class="search-box">
-          <span class="search-icon" aria-hidden="true">⌕</span>
-          <input id="query" type="search" placeholder="Mã vận đơn hoặc 4 số cuối…" autocomplete="off" spellcheck="false">
-          <button class="button button-primary" type="submit">Tìm kiếm <span>→</span></button>
-        </form>
-        <div class="search-hint"><span>↵</span> Nhấn Enter để tìm nhanh <span class="hint-separator">·</span> Ví dụ: 4821</div>
-      </section>
-
-      <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
-
-      <section id="resultsSection" class="content-section hidden">
-        <div class="section-heading">
-          <div><div class="eyebrow">MATCHING RECORDS</div><h2>Kết quả tìm kiếm</h2></div>
-          <span id="resultCount" class="count-chip">0 kết quả</span>
-        </div>
-        <div id="results" class="result-list"></div>
-      </section>
-
-      <section id="detailSection" class="detail-layout hidden">
-        <div class="detail-main">
-          <div class="section-heading detail-heading">
-            <div><div class="eyebrow">ORDER DETAILS</div><h2 id="detailCode">Đơn hàng</h2></div>
-            <span id="detailStatus" class="state-tag">—</span>
-          </div>
-          <div id="orderMeta" class="meta-grid"></div>
-          <div class="session-heading"><div><div class="eyebrow">RECORDING SESSIONS</div><h3>Chọn phiên đóng gói</h3></div><span id="sessionCount" class="subtle-count"></span></div>
-          <div id="sessions" class="session-list"></div>
-          <div id="sessionNotice" class="inline-hint">Chọn phiên đã hoàn tất để xem video.</div>
-          <button id="createShare" class="button button-primary button-wide" type="button">Tạo link ASC-Cloud <span>↗</span></button>
-          <div id="shareResult" class="share-result hidden"></div>
-        </div>
-
-        <aside class="video-panel">
-          <div class="video-panel-head"><div><div class="eyebrow">VIDEO PREVIEW</div><h3>Xem lại đóng gói</h3></div><span class="live-indicator"><i></i> PLAYER</span></div>
-          <div id="videoPlaceholder" class="video-placeholder"><div class="play-orb">▶</div><b>Chưa có video</b><span>Chọn phiên và tạo link ASC-Cloud để xem lại.</span></div>
-          <div id="videoFrameWrap" class="video-frame hidden"><video id="videoPlayer" controls playsinline preload="metadata"></video></div>
-          <div id="videoLinks" class="video-actions hidden"><a id="openShare" class="button button-secondary" target="_blank" rel="noopener">Mở ASC-Cloud ↗</a><a id="downloadVideo" class="button button-quiet" download>Tải MP4 ↓</a></div>
-          <p class="video-footnote">Video được truyền qua máy chủ bảo mật. Link ASC-Cloud có thời hạn riêng.</p>
-        </aside>
-      </section>
-
-      <section class="history-section">
-        <div class="section-heading"><div><div class="eyebrow">RECENT SEARCHES</div><h2>Tra cứu gần đây</h2></div><button id="clearHistory" class="button button-quiet">Xóa lịch sử</button></div>
-        <div id="historyList" class="history-list"><span class="empty-history">Chưa có lịch sử tìm kiếm.</span></div>
-      </section>
-    </section>
-
-    <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.1.0 · FOCUS CINEMA</b></span><span>PRIVATE · SECURE · RESPONSIVE</span></footer>
   </main>
   <script src="/app.js" defer></script>
-</body>
-</html>
+</body></html>

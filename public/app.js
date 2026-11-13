@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 const HISTORY = "avl-history-v1";
+const BOOKMARKS = "avl-bookmarks-v1";
 let selectedOrder = null;
 let selectedSession = null;
 let selectedSessions = [];
@@ -35,6 +36,8 @@ function setAscamStatus(state, message) {
   element.classList.remove("is-online", "is-offline", "is-error", "status-unknown");
   element.classList.add(state === "connected" ? "is-online" : state === "unavailable" ? "is-offline" : state === "not_configured" ? "is-error" : "status-unknown");
   element.title = message || labels[state] || "";
+  const top = $("ascamStatusTop");
+  if (top) { top.innerHTML = `<i></i><span>${esc(message || labels[state] || labels.unknown)}</span>`; top.className = element.className; top.title = element.title; }
 }
 function loginView() {
   $("loginView").classList.remove("hidden");
@@ -91,7 +94,10 @@ function renderHistory() {
   $("historyList").innerHTML = items.length
     ? items.map(item => `<button class="history-item" data-code="${esc(item.code)}"><b>${esc(item.code)}</b><small>${date(item.at)} ↗</small></button>`).join("")
     : '<span class="empty-history">Chưa có lịch sử tìm kiếm.</span>';
-  $("historyList").querySelectorAll("[data-code]").forEach(button => button.addEventListener("click", () => loadOrder(button.dataset.code)));
+  $("historyList").querySelectorAll("[data-code]").forEach(button => button.addEventListener("click", () => { showView("home"); loadOrder(button.dataset.code); }));
+  const home = $("homeHistory");
+  if (home) { home.innerHTML = items.slice(0,4).map(item => `<button class="history-item" data-home-code="${esc(item.code)}"><span><b>${esc(item.code)}</b><small>${date(item.at)}</small></span><span>↗</span></button>`).join("") || '<span class="empty-history">Chưa có lịch sử tìm kiếm.</span>'; home.querySelectorAll("[data-home-code]").forEach(button => button.addEventListener("click", () => loadOrder(button.dataset.homeCode))); }
+  const badge = $("historyBadge"); if (badge) badge.textContent = items.length;
 }
 function itemsOf(data) {
   if (Array.isArray(data)) return data;
@@ -187,6 +193,7 @@ function renderOrder(data, requestedCode) {
   $("detailSection").classList.remove("hidden");
   resetVideo();
   saveHistory(code);
+  updateBookmarkButton();
 }
 function updateSessionHint() {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
@@ -244,6 +251,46 @@ async function share() {
   finally { button.innerHTML = 'Tạo link ASC-Cloud <span>↗</span>'; button.disabled = selectedSession?.status === "recording"; }
 }
 
+
+function bookmarkItems() {
+  try { const value = JSON.parse(localStorage.getItem(BOOKMARKS) || "[]"); return Array.isArray(value) ? value : []; } catch { return []; }
+}
+function currentOrderCode() { return selectedOrder?.orderCode || selectedOrder?.OrderCode || selectedOrder?.code || $("detailCode")?.textContent || ""; }
+function isBookmarked(code = currentOrderCode()) { return bookmarkItems().some(item => item.code === code); }
+function updateBookmarkButton() {
+  const button = $("toggleBookmark"); if (!button) return;
+  const saved = isBookmarked(); button.textContent = saved ? "★ Đã đánh dấu · Bỏ đánh dấu" : "☆ Đánh dấu kiểm tra";
+  button.classList.toggle("is-saved", saved);
+}
+function renderBookmarks() {
+  const items = bookmarkItems();
+  $("bookmarkBadge").textContent = items.length; $("bookmarkCount").textContent = `${items.length} đơn`;
+  $("bookmarkList").innerHTML = items.length ? items.map(item => `<div class="bookmark-item"><button class="bookmark-open" data-open-code="${esc(item.code)}"><b>${esc(item.code)}</b><small>Đánh dấu ${date(item.at)}</small></button><button class="bookmark-remove" data-remove-code="${esc(item.code)}" aria-label="Bỏ đánh dấu">×</button></div>`).join("") : '<span class="empty-history">Chưa có đơn nào được đánh dấu.</span>';
+  $("bookmarkList").querySelectorAll("[data-open-code]").forEach(button => button.addEventListener("click", () => { showView("home"); loadOrder(button.dataset.openCode); }));
+  $("bookmarkList").querySelectorAll("[data-remove-code]").forEach(button => button.addEventListener("click", () => { localStorage.setItem(BOOKMARKS, JSON.stringify(bookmarkItems().filter(item => item.code !== button.dataset.removeCode))); renderBookmarks(); updateBookmarkButton(); }));
+}
+function toggleBookmark() {
+  const code = currentOrderCode(); if (!code || code === "Đơn hàng") return;
+  const items = bookmarkItems();
+  const next = isBookmarked(code) ? items.filter(item => item.code !== code) : [{ code, at: new Date().toISOString() }, ...items].slice(0,100);
+  try { localStorage.setItem(BOOKMARKS, JSON.stringify(next)); } catch { note("Trình duyệt không cho phép lưu danh sách đánh dấu.", true); return; }
+  renderBookmarks(); updateBookmarkButton(); note(isBookmarked(code) ? "Đã thêm đơn vào danh sách cần kiểm tra." : "Đã bỏ đánh dấu đơn hàng.");
+}
+function showView(view) {
+  const names = { home: "Tổng quan", history: "Lịch sử tìm kiếm", bookmarks: "Đơn cần kiểm tra" };
+  ["home", "history", "bookmarks"].forEach(key => $(key + "View").classList.toggle("hidden", key !== view));
+  document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
+  $("pageTitle").textContent = names[view] || names.home;
+  $("sidebar").classList.remove("open"); $("sidebarScrim").classList.remove("show");
+  if (view === "history") renderHistory(); if (view === "bookmarks") renderBookmarks();
+}
+document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => showView(button.dataset.view)));
+document.querySelectorAll("[data-goto]").forEach(button => button.addEventListener("click", () => showView(button.dataset.goto)));
+$("toggleBookmark").addEventListener("click", toggleBookmark);
+$("menuToggle").addEventListener("click", () => { $("sidebar").classList.toggle("open"); $("sidebarScrim").classList.toggle("show"); });
+$("sidebarScrim").addEventListener("click", () => { $("sidebar").classList.remove("open"); $("sidebarScrim").classList.remove("show"); });
+$("logoutDesktop").addEventListener("click", () => $("logout").click());
+
 $("loginForm").addEventListener("submit", async event => {
   event.preventDefault();
   $("loginError").textContent = "";
@@ -254,6 +301,7 @@ $("loginForm").addEventListener("submit", async event => {
     $("password").value = "";
     appView();
     renderHistory();
+    renderBookmarks();
     await refreshAscamStatus();
   } catch (error) { $("loginError").textContent = error.message; }
   finally { button.disabled = false; }
@@ -271,6 +319,7 @@ $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HIST
     await api("me");
     appView();
     renderHistory();
+    renderBookmarks();
     await refreshAscamStatus();
   } catch { loginView(); }
 })();

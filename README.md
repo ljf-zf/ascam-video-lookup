@@ -49,3 +49,10 @@ Secrets are not committed to GitHub. After adding/changing Secrets in Cloudflare
 ## Local development (optional)
 
 Node.js is only needed if you choose to run Wrangler locally. It is not required on the end-user device or store PC for the hosted website. See `.dev.vars.example` for local-only placeholders; never commit a populated `.dev.vars` file.
+
+
+## V1.2.0 interface notes
+- Left navigation: Overview, Search History, and Orders to Review.
+- Order bookmarks and search history are stored in the current browser's local storage; they are not synchronized across devices.
+- Merged MP4 playback/download and ASC-Cloud sharing continue to use the existing authenticated Pages API routes.
+- Mobile uses a slide-out navigation drawer and a single-column workspace.
