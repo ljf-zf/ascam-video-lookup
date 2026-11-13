@@ -3,5 +3,6 @@ pages_build_output_dir = "./public"
 compatibility_date = "2026-11-13"
 
 [vars]
-# Replace with HTTPS Cloudflare Tunnel URL for ASCAM local API.
-ASCAM_API_BASE = "https://REPLACE-WITH-TUNNEL-URL/api/v1"
+# Replace this with the real HTTPS Cloudflare Tunnel URL when the store PC is online.
+# Do not put ASCAM_API_TOKEN here; add it as an encrypted Secret in Cloudflare.
+ASCAM_API_BASE = "https://REPLACE-WITH-TUNNEL-URL"

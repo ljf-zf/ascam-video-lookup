@@ -1,27 +1,164 @@
-const COOKIE="avl_session", SESSION_SECONDS=36000;
-const enc=new TextEncoder();
-function json(data,status=200,headers={}){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...headers}})}
-function b64(bytes){let s="";for(const b of bytes)s+=String.fromCharCode(b);return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"")}
-function unb64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
-async function sign(secret,payload){const k=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return b64(new Uint8Array(await crypto.subtle.sign("HMAC",k,enc.encode(payload))))}
-async function makeCookie(secret){const p=b64(enc.encode(JSON.stringify({exp:Math.floor(Date.now()/1000)+SESSION_SECONDS,n:crypto.randomUUID()})));return p+"."+await sign(secret,p)}
-async function authed(req,secret){const c=(req.headers.get("Cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith(COOKIE+"="))?.slice(COOKIE.length+1);if(!c)return false;const [p,s]=c.split(".");if(!p||!s)return false;try{if(await sign(secret,p)!==s)return false;return JSON.parse(new TextDecoder().decode(unb64(p))).exp>Date.now()/1000}catch{return false}}
-function cookie(v,age=SESSION_SECONDS){return `${COOKIE}=${v}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`}
-async function body(req){try{return await req.json()}catch{return {}}}
-function base(env){const b=(env.ASCAM_API_BASE||"").replace(/\/+$/g,"");if(!b||!b.startsWith("https://"))throw Error("ASCAM_API_BASE chưa được cấu hình bằng HTTPS.");return b.endsWith("/api/v1")?b:b+"/api/v1"}
-async function asc(env,path,init={}){if(!env.ASCAM_API_TOKEN)throw Error("Chưa cấu hình ASCAM_API_TOKEN.");const h=new Headers(init.headers||{});h.set("Authorization",`Bearer ${env.ASCAM_API_TOKEN}`);if(init.body)h.set("Content-Type","application/json");const r=await fetch(base(env)+path,{...init,headers:h});const t=await r.text();let d;try{d=JSON.parse(t)}catch{d={message:t.slice(0,300)}}return r.ok?{data:d,status:r.status}:{error:d.message||d.error||`ASCAM HTTP ${r.status}`,status:r.status}}
-const safeCode=s=>typeof s==="string"&&/^[A-Za-z0-9_-]{4,80}$/.test(s);
-export async function onRequest({request,env}){
- const u=new URL(request.url),p=u.pathname.replace(/^\/api\/?/,""),m=request.method.toUpperCase();
- if(!env.APP_PASSWORD||!env.SESSION_SECRET)return json({error:"Thiếu APP_PASSWORD hoặc SESSION_SECRET trong Pages Secrets."},503);
- if(p==="login"&&m==="POST"){const x=await body(request);if(typeof x.password!=="string"||x.password.length>256)return json({error:"Mật khẩu không hợp lệ."},400);const [a,b]=await Promise.all([crypto.subtle.digest("SHA-256",enc.encode(x.password)),crypto.subtle.digest("SHA-256",enc.encode(env.APP_PASSWORD))]);if(b64(new Uint8Array(a))!==b64(new Uint8Array(b)))return json({error:"Mật khẩu không đúng."},401);return json({ok:true},200,{"Set-Cookie":cookie(await makeCookie(env.SESSION_SECRET))})}
- if(p==="logout"&&m==="POST")return json({ok:true},200,{"Set-Cookie":cookie("",0)});
- const ok=await authed(request,env.SESSION_SECRET);if(p==="me"&&m==="GET")return ok?json({ok:true}):json({error:"Cần đăng nhập."},401);if(!ok)return json({error:"Phiên đăng nhập hết hạn."},401);
- try{
-  if(p==="search"&&m==="GET"){const q=(u.searchParams.get("q")||"").trim();if(q.length<4||q.length>80)return json({error:"Nhập ít nhất 4 ký tự."},400);const r=await asc(env,`/orders?${new URLSearchParams({q,page:"1",pageSize:"500"})}`);if(r.error)return json({error:r.error},r.status);let items=Array.isArray(r.data.items)?r.data.items:[];if(/^\d{4}$/.test(q))items=items.filter(x=>String(x.orderCode||x.OrderCode||"").includes(q));return json({items,total:items.length,page:r.data.page||1,pageSize:r.data.pageSize||50})}
-  if(p==="order"&&m==="GET"){const c=u.searchParams.get("code")||"";if(!safeCode(c))return json({error:"Mã vận đơn không hợp lệ."},400);const r=await asc(env,`/orders/${encodeURIComponent(c)}`);return r.error?json({error:r.error},r.status):json(r.data)}
-  if(p==="share"&&m==="POST"){const x=await body(request),c=x.orderCode||"";if(!safeCode(c))return json({error:"Mã vận đơn không hợp lệ."},400);const r=await asc(env,`/orders/${encodeURIComponent(c)}/share`,{method:"POST",body:JSON.stringify({storage:"cloud",role:"merged",lang:"vi",theme:"dark"})});if(r.error)return json({error:r.error},r.status);if(!r.data.shareUrl)return json({error:"ASCAM không trả shareUrl."},502);return json(r.data)}
-  if((p==="download"||p==="stream")&&m==="GET"){const sid=u.searchParams.get("sessionId")||"";if(!/^\d{6,30}$/.test(sid))return json({error:"Session ID không hợp lệ."},400);const h=new Headers({Authorization:`Bearer ${env.ASCAM_API_TOKEN}`});const range=request.headers.get("Range");if(range)h.set("Range",range);const r=await fetch(base(env)+`/videos/${sid}/download?merged=1`,{headers:h});if(!r.ok)return json({error:`ASCAM trả HTTP ${r.status} khi tải video.`},r.status);const out=new Headers();for(const k of ["Content-Type","Content-Length","Content-Range","Accept-Ranges"])if(r.headers.has(k))out.set(k,r.headers.get(k));out.set("Cache-Control","private, no-store");out.set("Content-Disposition",`${p==="stream"?"inline":"attachment"}; filename="ASCAM-${sid}.mp4"`);return new Response(r.body,{status:r.status,headers:out})}
-  return json({error:"Không tìm thấy API."},404)
- }catch(e){return json({error:e.message||"Lỗi máy chủ."},500)}
+const COOKIE = "avl_session";
+const SESSION_SECONDS = 36000;
+const enc = new TextEncoder();
+
+function json(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      ...headers,
+    },
+  });
+}
+function b64(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function unb64(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+async function sign(secret, payload) {
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64(new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(payload))));
+}
+async function makeCookie(secret) {
+  const payload = b64(enc.encode(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS, n: crypto.randomUUID() })));
+  return payload + "." + await sign(secret, payload);
+}
+async function authed(req, secret) {
+  const value = (req.headers.get("Cookie") || "").split(";").map(x => x.trim()).find(x => x.startsWith(COOKIE + "="))?.slice(COOKIE.length + 1);
+  if (!value) return false;
+  const [payload, signature] = value.split(".");
+  if (!payload || !signature) return false;
+  try {
+    if (await sign(secret, payload) !== signature) return false;
+    return JSON.parse(new TextDecoder().decode(unb64(payload))).exp > Date.now() / 1000;
+  } catch { return false; }
+}
+function cookie(value, age = SESSION_SECONDS) {
+  return `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
+}
+async function body(req) {
+  try { return await req.json(); } catch { return {}; }
+}
+function base(env) {
+  const value = (env.ASCAM_API_BASE || "").replace(/\/+$/g, "");
+  if (!value || !value.startsWith("https://") || value.includes("REPLACE-WITH-TUNNEL-URL")) {
+    throw new Error("ASCAM_API_BASE chưa được cấu hình bằng địa chỉ HTTPS Tunnel thật.");
+  }
+  return value.endsWith("/api/v1") ? value : value + "/api/v1";
+}
+async function asc(env, path, init = {}) {
+  if (!env.ASCAM_API_TOKEN) throw new Error("Chưa cấu hình ASCAM_API_TOKEN.");
+  const headers = new Headers(init.headers || {});
+  headers.set("Authorization", `Bearer ${env.ASCAM_API_TOKEN}`);
+  if (init.body) headers.set("Content-Type", "application/json");
+  const response = await fetch(base(env) + path, { ...init, headers });
+  const raw = await response.text();
+  let data;
+  try { data = JSON.parse(raw); } catch { data = { message: raw.slice(0, 300) }; }
+  return response.ok
+    ? { data, status: response.status }
+    : { error: data.message || data.error || `ASCAM HTTP ${response.status}`, status: response.status };
+}
+const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(value);
+const safeSession = value => /^\d{6,30}$/.test(String(value || ""));
+
+export async function onRequest({ request, env }) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/^\/api\/?/, "");
+  const method = request.method.toUpperCase();
+
+  if (!env.APP_PASSWORD || !env.SESSION_SECRET) {
+    return json({ error: "Thiếu APP_PASSWORD hoặc SESSION_SECRET trong Pages Secrets." }, 503);
+  }
+
+  if (path === "login" && method === "POST") {
+    const input = await body(request);
+    if (typeof input.password !== "string" || input.password.length > 256) return json({ error: "Mật khẩu không hợp lệ." }, 400);
+    const [candidate, expected] = await Promise.all([
+      crypto.subtle.digest("SHA-256", enc.encode(input.password)),
+      crypto.subtle.digest("SHA-256", enc.encode(env.APP_PASSWORD)),
+    ]);
+    if (b64(new Uint8Array(candidate)) !== b64(new Uint8Array(expected))) return json({ error: "Mật khẩu không đúng." }, 401);
+    return json({ ok: true }, 200, { "Set-Cookie": cookie(await makeCookie(env.SESSION_SECRET)) });
+  }
+  if (path === "logout" && method === "POST") return json({ ok: true }, 200, { "Set-Cookie": cookie("", 0) });
+
+  const authenticated = await authed(request, env.SESSION_SECRET);
+  if (path === "me" && method === "GET") return authenticated ? json({ ok: true }) : json({ error: "Cần đăng nhập." }, 401);
+  if (!authenticated) return json({ error: "Phiên đăng nhập hết hạn." }, 401);
+
+  if (path === "status" && method === "GET") {
+    if (!env.ASCAM_API_TOKEN) return json({ website: "ok", ascam: "not_configured", message: "Chưa cấu hình ASCAM_API_TOKEN." });
+    let apiBase;
+    try { apiBase = base(env); } catch (error) {
+      return json({ website: "ok", ascam: "not_configured", message: error.message });
+    }
+    try {
+      const result = await asc(env, "/health", { signal: AbortSignal.timeout(7000) });
+      if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error, httpStatus: result.status });
+      return json({ website: "ok", ascam: "connected", message: "ASCAM API phản hồi bình thường." });
+    } catch (error) {
+      return json({ website: "ok", ascam: "unavailable", message: error.name === "TimeoutError" ? "ASCAM không phản hồi trong 7 giây." : error.message });
+    }
+  }
+
+  try {
+    if (path === "search" && method === "GET") {
+      const query = (url.searchParams.get("q") || "").trim();
+      if (query.length < 4 || query.length > 80) return json({ error: "Nhập mã đơn đầy đủ hoặc ít nhất 4 số cuối." }, 400);
+      const result = await asc(env, `/orders?${new URLSearchParams({ q: query, page: "1", pageSize: "500" })}`);
+      if (result.error) return json({ error: result.error }, result.status);
+      const data = result.data;
+      let items = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : Array.isArray(data.data?.items) ? data.data.items : [];
+      if (/^\d{4}$/.test(query)) items = items.filter(item => String(item.orderCode || item.OrderCode || "").includes(query));
+      return json({ items, total: items.length, page: data.page || data.data?.page || 1, pageSize: data.pageSize || data.data?.pageSize || 500, limitedToFirstPage: true });
+    }
+    if (path === "order" && method === "GET") {
+      const code = url.searchParams.get("code") || "";
+      if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}`);
+      return result.error ? json({ error: result.error }, result.status) : json(result.data);
+    }
+    if (path === "share" && method === "POST") {
+      const input = await body(request);
+      const code = input.orderCode || "";
+      if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
+      // ASCAM's verified share request is order-level. Do not claim session-specific
+      // sharing until the API contract explicitly supports a sessionId parameter.
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
+        method: "POST",
+        body: JSON.stringify({ storage: "cloud", role: "merged", lang: "vi", theme: "dark" }),
+      });
+      if (result.error) return json({ error: result.error }, result.status);
+      if (!result.data.shareUrl && !result.data.shareURL) return json({ error: "ASCAM không trả shareUrl." }, 502);
+      return json({ ...result.data, shareScope: "order", note: "Link được tạo theo đơn hàng bằng API ASCAM đã xác minh; chưa xác nhận API hỗ trợ chọn session riêng." });
+    }
+    if ((path === "download" || path === "stream") && method === "GET") {
+      const sessionId = url.searchParams.get("sessionId") || "";
+      if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
+      const headers = new Headers({ Authorization: `Bearer ${env.ASCAM_API_TOKEN}` });
+      const range = request.headers.get("Range");
+      if (range) headers.set("Range", range);
+      const response = await fetch(base(env) + `/videos/${sessionId}/download?merged=1`, { headers });
+      if (!response.ok && response.status !== 206) return json({ error: `ASCAM trả HTTP ${response.status} khi tải video.` }, response.status);
+      const outputHeaders = new Headers();
+      for (const key of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
+        if (response.headers.has(key)) outputHeaders.set(key, response.headers.get(key));
+      }
+      outputHeaders.set("Cache-Control", "private, no-store");
+      outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
+      return new Response(response.body, { status: response.status, headers: outputHeaders });
+    }
+    return json({ error: "Không tìm thấy API." }, 404);
+  } catch (error) {
+    return json({ error: error.message || "Lỗi máy chủ." }, 500);
+  }
 }
