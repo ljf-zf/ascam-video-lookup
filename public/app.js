@@ -178,13 +178,14 @@ async function playVideo(mode, button = null) {
   try {
     const src = playbackUrl(mode);
     player.pause();
+    player.preload = "auto";
     player.src = src;
     player.load();
     $("videoPlaceholder").classList.add("hidden");
     $("videoFrameWrap").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
     $("videoPanelTitle").textContent = label;
-    $("videoFootnote").textContent = "Đang phát qua Cloudflare Pages Function · HTTP Range · Token được giữ ở backend.";
+    $("videoFootnote").textContent = "Đang kết nối luồng MP4 qua Cloudflare · HTTP Range · Token được giữ ở backend.";
     $("downloadVideo").href = playbackUrl(mode, true);
     $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
     document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
@@ -376,10 +377,28 @@ $("logout").addEventListener("click", async () => {
 });
 $("searchForm").addEventListener("submit", event => { event.preventDefault(); search($("query").value); });
 $("createShare").addEventListener("click", share);
+$("videoPlayer").addEventListener("loadedmetadata", () => {
+  const player = $("videoPlayer");
+  $("videoFootnote").textContent = `Đã nhận metadata video · ${Math.round(player.duration || 0)} giây · Có thể tua bằng thanh thời gian.`;
+});
+$("videoPlayer").addEventListener("canplay", () => {
+  $("videoFootnote").textContent = "Video đã sẵn sàng phát · Dữ liệu được truyền theo luồng, không tải toàn bộ trước.";
+});
+$("videoPlayer").addEventListener("stalled", () => {
+  $("videoFootnote").textContent = "Luồng video đang chậm hoặc tạm ngắt. Chờ một chút hoặc chọn phát lại.";
+});
 $("videoPlayer").addEventListener("error", () => {
-  const code = $("videoPlayer").error?.code;
-  const reasons = { 2: "Lỗi mạng khi nhận video từ ASCAM.", 3: "Trình duyệt không giải mã được video MP4.", 4: "Nguồn video không khả dụng hoặc định dạng không được hỗ trợ." };
-  note(reasons[code] || "Không thể phát video. Kiểm tra kết nối ASCAM và thử lại.", true);
+  const player = $("videoPlayer");
+  const code = player.error?.code;
+  const reasons = {
+    1: "Yêu cầu phát video đã bị hủy.",
+    2: "Lỗi mạng khi nhận video từ ASCAM/Cloudflare. Hãy thử lại một lần.",
+    3: "Trình duyệt không giải mã được luồng MP4 nhận từ ASCAM.",
+    4: "Nguồn video không khả dụng hoặc phản hồi không phải MP4."
+  };
+  const message = reasons[code] || "Không thể phát video. Hãy thử lại hoặc kiểm tra trạng thái ASCAM.";
+  $("videoFootnote").textContent = message;
+  note(message, true);
 });
 $("probeOverview").addEventListener("click", () => probeCamera("overview", "probeOverview"));
 $("probeWaybill").addEventListener("click", () => probeCamera("waybill", "probeWaybill"));

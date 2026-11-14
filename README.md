@@ -71,3 +71,12 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - `/api/stream` and `/api/download` accept `camId=overview|waybill`; omit `camId` to use the existing merged stream.
 - Forwards browser HTTP Range requests and streams the upstream response without buffering the complete MP4.
 - Bearer Token remains server-side.
+
+
+## v1.3.1 — Quick Playback streaming reliability
+- Stream requests now forward valid browser Range and If-Range headers unchanged.
+- When a media player starts without a Range header, the Pages Function requests an open-ended `bytes=0-` range from ASCAM for progressive playback.
+- Requests explicitly ask for identity encoding so byte ranges and Content-Length remain consistent.
+- The stream route validates the upstream MP4 content type and reports upstream HTTP failures as actionable JSON instead of silently returning a non-video body.
+- Preserves streaming response bodies without buffering the full MP4; only forwards Content-Length when safe.
+- The player now reports metadata, can-play, stalled, and decode/network errors more clearly.

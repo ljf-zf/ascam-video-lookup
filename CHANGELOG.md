@@ -25,3 +25,10 @@
 - Added explicit Merged Video playback without requiring an ASC-Cloud share first.
 - Extended authenticated stream/download endpoints to accept a whitelisted `camId`, forward Range headers, and stream bytes through Pages Functions.
 - Kept ASC-Cloud sharing as a separate action and preserved existing merged-video behavior.
+
+
+## 1.3.1 — Quick Playback Fix
+- Improved byte-range forwarding and progressive first request behavior.
+- Added identity encoding and safe response header forwarding.
+- Validates upstream video content type and exposes clearer stream errors.
+- Added player status messages for metadata, readiness, stalls, and playback errors.
