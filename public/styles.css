@@ -12,3 +12,5 @@
 
 /* Quick playback camera selector */
 .playback-modes{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0 0 12px}.playback-modes .button{min-height:37px;padding:9px 10px;font-size:10px}.playback-modes [data-play-camera="merged"]{grid-column:1/-1}.playback-modes .is-playing{border-color:rgba(102,217,165,.55);background:rgba(34,105,83,.28);color:#9be7c2}.video-frame{aspect-ratio:16/10;min-height:220px}.video-frame video{object-fit:contain}.video-actions a.hidden{display:none!important}@media(max-width:390px){.playback-modes{grid-template-columns:1fr}.playback-modes [data-play-camera="merged"]{grid-column:auto}}
+
+.camera-probe-actions #probeMerged{grid-column:1/-1}.camera-probe-row small{overflow-wrap:anywhere;word-break:break-word}

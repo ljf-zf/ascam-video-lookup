@@ -189,6 +189,147 @@ export async function onRequest({ request, env }) {
       try { await upstream.body?.cancel(); } catch { /* stream may already be closed */ }
       return json(result, 200);
     }
+    if (path === "camera-diagnose" && method === "GET") {
+      const sessionId = url.searchParams.get("sessionId") || "";
+      const mode = url.searchParams.get("mode") || "";
+      if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
+      if (!["overview", "waybill", "merged"].includes(mode)) return json({ error: "Chế độ chẩn đoán không hợp lệ." }, 400);
+
+      const camId = mode === "overview"
+        ? `tc-${url.searchParams.get("stationId") || ""}`
+        : mode === "waybill"
+          ? `vd-${url.searchParams.get("stationId") || ""}`
+          : "";
+      if (mode !== "merged" && !/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) {
+        return json({ error: "Không xác định được stationId để tạo ID camera." }, 400);
+      }
+
+      // Safe source fingerprint: request at most the first 64 KiB and never
+      // return/store video bytes. Run one mode at a time from the UI.
+      const sampleLimit = 64 * 1024;
+      const controller = new AbortController();
+      const startedAt = Date.now();
+      const timeoutMs = 20000;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let upstream;
+      let reader;
+      try {
+        const query = mode === "merged"
+          ? "merged=1"
+          : `camId=${encodeURIComponent(camId)}`;
+        const headers = new Headers({
+          Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
+          Range: `bytes=0-${sampleLimit - 1}`,
+          Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
+          "Accept-Encoding": "identity",
+          "Cache-Control": "no-cache",
+        });
+        upstream = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${query}`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+          redirect: "follow",
+        });
+
+        const contentType = upstream.headers.get("Content-Type") || "";
+        const contentRange = upstream.headers.get("Content-Range") || "";
+        const contentLength = upstream.headers.get("Content-Length") || "";
+        const acceptRanges = upstream.headers.get("Accept-Ranges") || "";
+        const etag = upstream.headers.get("ETag") || "";
+        const lastModified = upstream.headers.get("Last-Modified") || "";
+        const responseMs = Date.now() - startedAt;
+        const result = {
+          ok: false,
+          mode,
+          camId: camId || null,
+          sessionId,
+          httpStatus: upstream.status,
+          contentType,
+          contentRange,
+          contentLength,
+          acceptRanges,
+          etag,
+          lastModified,
+          requestedRange: `bytes=0-${sampleLimit - 1}`,
+          sampleLimitBytes: sampleLimit,
+          sampleBytes: 0,
+          sampleSha256: "",
+          responseMs,
+          rangeValid: false,
+          message: "",
+        };
+
+        // Do not read an unbounded/full response if ASCAM ignored Range.
+        if (upstream.status !== 206) {
+          result.message = upstream.status === 200
+            ? "ASCAM trả HTTP 200 thay vì 206; đã hủy body ngay, không tải video toàn bộ."
+            : `ASCAM trả HTTP ${upstream.status} cho yêu cầu Range hữu hạn.`;
+          try { await upstream.body?.cancel(); } catch {}
+          return json(result);
+        }
+
+        const match = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+        result.rangeValid = !!match && Number(match[1]) === 0 && Number(match[2]) < sampleLimit;
+        result.expectedBytes = match ? Number(match[2]) - Number(match[1]) + 1 : null;
+        if (!upstream.body) {
+          result.message = "ASCAM trả 206 nhưng không có body video.";
+          return json(result);
+        }
+        if (!result.rangeValid) {
+          result.message = "ASCAM trả 206 nhưng Content-Range không khớp đoạn tối đa 64 KB đã yêu cầu; đã hủy body để tránh tải vượt giới hạn.";
+          try { await upstream.body.cancel(); } catch {}
+          return json(result);
+        }
+
+        reader = upstream.body.getReader();
+        const sample = new Uint8Array(sampleLimit);
+        let total = 0;
+        while (total < sampleLimit) {
+          const part = await reader.read();
+          if (part.done) break;
+          const value = part.value || new Uint8Array();
+          const take = Math.min(value.byteLength, sampleLimit - total);
+          sample.set(value.subarray(0, take), total);
+          total += take;
+          if (take < value.byteLength || total >= sampleLimit) break;
+        }
+        result.sampleBytes = total;
+        result.sampleComplete = result.expectedBytes === total;
+        if (total > 0) {
+          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", sample.subarray(0, total)));
+          result.sampleSha256 = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        }
+        result.ok = total > 0 && result.sampleComplete && contentType.toLowerCase().includes("video/mp4");
+        result.responseMs = Date.now() - startedAt;
+        result.message = result.ok
+          ? "Đã lấy mẫu video hữu hạn; không lưu hoặc trả MP4 về trình duyệt. So sánh SHA-256 giữa ba chế độ để xác định nguồn có khác nhau không."
+          : total === 0
+            ? "ASCAM trả 206 nhưng không gửi byte video nào."
+            : !result.sampleComplete
+              ? `Mẫu chưa đủ byte: nhận ${total}/${result.expectedBytes ?? "?"}. Không dùng fingerprint này để kết luận.`
+              : `ASCAM trả ${contentType || "Content-Type không xác định"}, không phải video/mp4.`;
+        return json(result);
+      } catch (error) {
+        const timedOut = controller.signal.aborted || error?.name === "TimeoutError" || error?.name === "AbortError";
+        return json({
+          ok: false,
+          mode,
+          camId: camId || null,
+          sessionId,
+          result: timedOut ? "timeout" : "network_error",
+          requestedRange: `bytes=0-${sampleLimit - 1}`,
+          sampleLimitBytes: sampleLimit,
+          responseMs: Date.now() - startedAt,
+          message: timedOut
+            ? `ASCAM chưa hoàn tất mẫu 64 KB trong ${timeoutMs / 1000} giây.`
+            : `Không đọc được mẫu video: ${error?.message || "lỗi mạng"}`,
+        }, timedOut ? 504 : 502);
+      } finally {
+        clearTimeout(timer);
+        try { await reader?.cancel(); } catch {}
+        if (!reader) { try { await upstream?.body?.cancel(); } catch {} }
+      }
+    }
     if (path === "share" && method === "POST") {
       const input = await body(request);
       const code = input.orderCode || "";

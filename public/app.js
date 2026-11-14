@@ -53,13 +53,14 @@ function appView() {
   setAuthStatus(true);
 }
 async function api(path, options = {}) {
-  const timeoutSignal = AbortSignal.timeout(15000);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  const { timeoutMs = 15000, ...fetchOptions } = options;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = fetchOptions.signal ? AbortSignal.any([fetchOptions.signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch("/api/" + path, {
     credentials: "same-origin",
-    ...options,
+    ...fetchOptions,
     signal,
-    headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
+    headers: { ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}), ...(fetchOptions.headers || {}) },
   });
   const data = await response.json().catch(() => ({ error: "Phản hồi máy chủ không hợp lệ." }));
   if (response.status === 401 && path !== "login") {
@@ -251,45 +252,58 @@ function renderOrder(data, requestedCode) {
   updateBookmarkButton();
 }
 function renderCameraProbeResult(result) {
-  const ok = result.httpStatus === 206;
+  const ok = result.ok === true && result.httpStatus === 206 && result.sampleBytes > 0;
   const status = result.httpStatus ? `HTTP ${result.httpStatus}` : (result.result || "Lỗi");
   const details = [
-    result.contentType ? `Content-Type: ${result.contentType}` : "",
+    result.camId ? `camId: ${result.camId}` : result.mode === "merged" ? "mode: merged=1" : "",
+    result.requestedRange || "",
     result.contentRange ? `Content-Range: ${result.contentRange}` : "",
-    result.acceptRanges ? `Accept-Ranges: ${result.acceptRanges}` : "",
-    result.contentLength ? `Content-Length: ${result.contentLength}` : "",
+    result.contentType ? `Content-Type: ${result.contentType}` : "",
+    Number.isFinite(result.sampleBytes) ? `Đã đọc: ${result.sampleBytes}/${result.expectedBytes ?? "?"} byte` : "",
+    result.sampleSha256 ? `SHA-256: ${result.sampleSha256}` : "",
+    result.etag ? `ETag: ${result.etag}` : "",
+    Number.isFinite(result.responseMs) ? `${result.responseMs} ms` : "",
   ].filter(Boolean).join(" · ");
-  return `<div class="camera-probe-row ${ok ? "probe-good" : result.httpStatus === 200 ? "probe-warn" : "probe-bad"}"><div><b>${esc(result.camId || "Camera")}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${details ? `<small>${esc(details)}</small>` : ""}</div>`;
+  return `<div class="camera-probe-row ${ok ? "probe-good" : "probe-bad"}"><div><b>${esc(result.camId || (result.mode === "merged" ? "merged=1" : "Nguồn video"))}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${details ? `<small>${esc(details)}</small>` : ""}</div>`;
 }
 let probeBusy = false;
-async function probeCamera(mode, buttonId) {
-  if (probeBusy) return note("Đang kiểm tra camera khác. Vui lòng đợi hoàn tất.", true);
+async function diagnoseVideoSource(mode, buttonId) {
+  if (probeBusy) return note("Đang chẩn đoán nguồn video khác. Vui lòng đợi hoàn tất.", true);
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
-  let camId;
-  try { camId = cameraIdForMode(mode); } catch (error) { return note(error.message, true); }
   if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
   if (selectedSession?.status === "recording") return note("Không kiểm tra video của phiên đang ghi hình. Hãy chọn phiên đã hoàn tất.", true);
+  if (!["overview", "waybill", "merged"].includes(mode)) return;
+  let stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
+  if (mode !== "merged" && !/^b-\d{1,3}$/.test(stationId)) return note("Không tìm thấy stationId của phiên để xác định camera.", true);
+
   const button = $(buttonId);
   const output = $("cameraProbeResults");
+  const modeLabel = mode === "overview" ? "Overview" : mode === "waybill" ? "Waybill" : "Video ghép";
+  const camId = mode === "overview" ? `tc-${stationId}` : mode === "waybill" ? `vd-${stationId}` : "";
   probeBusy = true;
-  button.disabled = true;
-  button.dataset.originalText ||= button.textContent;
-  button.textContent = "Đang kiểm tra…";
-  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
+  document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged").forEach(item => { item.disabled = true; });
+  const originalText = button.textContent;
+  button.textContent = "Đang lấy mẫu…";
+  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId || "merged=1")}</b><p>Đang yêu cầu tối đa 64 KB từ nguồn ${esc(modeLabel)}…</p></div>`);
   try {
-    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(camId)}`);
-    const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
-    if (old) old.outerHTML = renderCameraProbeResult(result);
+    const params = new URLSearchParams({ sessionId: String(sessionId), mode });
+    if (stationId) params.set("stationId", stationId);
+    const result = await api(`camera-diagnose?${params.toString()}`, { timeoutMs: 25000 });
+    const pending = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
+    if (pending) pending.outerHTML = renderCameraProbeResult(result);
     else output.insertAdjacentHTML("afterbegin", renderCameraProbeResult(result));
   } catch (error) {
-    const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
-    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(camId)}</b><p>${esc(error.message)}</p></div>`;
+    const pending = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
+    const failed = `<div class="camera-probe-row probe-bad"><b>${esc(camId || "merged=1")}</b><p>${esc(error.message || "Không thể chẩn đoán nguồn video.")}</p></div>`;
+    if (pending) pending.outerHTML = failed;
+    else output.insertAdjacentHTML("afterbegin", failed);
   } finally {
-    button.disabled = false;
-    button.textContent = button.dataset.originalText;
+    button.textContent = originalText;
+    document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged").forEach(item => { item.disabled = false; });
     probeBusy = false;
   }
 }
+
 function updateSessionHint() {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
   const recording = selectedSession?.status === "recording";
@@ -401,8 +415,9 @@ $("videoPlayer").addEventListener("error", () => {
   const reasons = { 2: "Lỗi mạng khi nhận video từ ASCAM.", 3: "Trình duyệt không giải mã được video MP4.", 4: "Nguồn video không khả dụng hoặc định dạng không được hỗ trợ." };
   note(reasons[code] || "Không thể phát video. Kiểm tra kết nối ASCAM và thử lại.", true);
 });
-$("probeOverview").addEventListener("click", () => probeCamera("overview", "probeOverview"));
-$("probeWaybill").addEventListener("click", () => probeCamera("waybill", "probeWaybill"));
+$("probeOverview").addEventListener("click", () => diagnoseVideoSource("overview", "probeOverview"));
+$("probeWaybill").addEventListener("click", () => diagnoseVideoSource("waybill", "probeWaybill"));
+$("probeMerged").addEventListener("click", () => diagnoseVideoSource("merged", "probeMerged"));
 document.querySelectorAll("[data-play-camera]").forEach(button => button.addEventListener("click", () => playVideo(button.dataset.playCamera, button)));
 $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HISTORY); renderHistory(); });
 

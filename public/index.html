@@ -24,7 +24,7 @@
           <button class="nav-item" data-view="history"><span class="nav-icon">◷</span><span>Lịch sử tìm kiếm</span><span id="historyBadge" class="nav-badge">0</span></button>
           <button class="nav-item" data-view="bookmarks"><span class="nav-icon">☆</span><span>Đơn cần kiểm tra</span><span id="bookmarkBadge" class="nav-badge">0</span></button>
         </nav>
-        <div class="sidebar-bottom"><div class="connection-card"><span class="connection-dot"></span><div><b id="authStatus">Chưa đăng nhập</b><small id="ascamStatus">ASCAM chưa kiểm tra</small></div></div><button id="logoutDesktop" class="nav-logout">↪ Đăng xuất</button><div class="side-version">ASCAM VIDEO LOOKUP <b>V1.3.1 · DIRECT CAMERA</b></div></div>
+        <div class="sidebar-bottom"><div class="connection-card"><span class="connection-dot"></span><div><b id="authStatus">Chưa đăng nhập</b><small id="ascamStatus">ASCAM chưa kiểm tra</small></div></div><button id="logoutDesktop" class="nav-logout">↪ Đăng xuất</button><div class="side-version">ASCAM VIDEO LOOKUP <b>V1.3.3 · SOURCE DIAGNOSTICS</b></div></div>
       </aside>
 
       <div class="workspace-main">
@@ -43,11 +43,12 @@
               <div class="detail-toolbar"><div><div class="eyebrow">RECORDING SESSIONS</div><h3>Video ghép đóng gói</h3><span id="sessionCount" class="subtle-count"></span></div><button id="toggleBookmark" class="button button-quiet bookmark-button" type="button">☆ Đánh dấu kiểm tra</button></div>
               <div id="sessions" class="session-list"></div><div id="sessionNotice" class="inline-hint">Chọn phiên đã hoàn tất để xem video.</div>
               <section class="camera-diagnostic" aria-labelledby="cameraDiagnosticTitle">
-                <div class="camera-diagnostic-head"><div><div class="eyebrow">SAFE RANGE PROBE</div><h3 id="cameraDiagnosticTitle">Kiểm tra camera gốc</h3></div><span class="diagnostic-chip">1 byte</span></div>
-                <p>Gửi yêu cầu Range 0–0 cho từng giá trị role ASCAM trả về. Chỉ đọc header rồi hủy luồng, không tải toàn bộ MP4.</p>
+                <div class="camera-diagnostic-head"><div><div class="eyebrow">SOURCE FINGERPRINT</div><h3 id="cameraDiagnosticTitle">Chẩn đoán nguồn video</h3></div><span class="diagnostic-chip">Tối đa 64 KB</span></div>
+                <p>Kiểm tra riêng Overview, Waybill và video ghép bằng Range hữu hạn. Chỉ đọc tối đa 64 KB để so sánh SHA-256; không lưu hoặc phát toàn bộ MP4. Chạy từng phép thử một.</p>
                 <div class="camera-probe-actions">
-                  <button id="probeOverview" class="button button-secondary" type="button">Kiểm tra overview</button>
-                  <button id="probeWaybill" class="button button-secondary" type="button">Kiểm tra waybill</button>
+                  <button id="probeOverview" class="button button-secondary" type="button">Lấy mẫu Overview</button>
+                  <button id="probeWaybill" class="button button-secondary" type="button">Lấy mẫu Waybill</button>
+                  <button id="probeMerged" class="button button-quiet" type="button">Lấy mẫu Video ghép</button>
                 </div>
                 <div id="cameraProbeResults" class="camera-probe-results" aria-live="polite">Chưa chạy kiểm tra.</div>
               </section>
@@ -70,7 +71,7 @@
         <section id="historyView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">YOUR ACTIVITY</div><h1>Lịch sử tìm kiếm</h1><p>Mở lại nhanh những đơn hàng mày đã tra cứu trên thiết bị này.</p></div><div class="section-heading"><h2>Các đơn gần đây</h2><button id="clearHistory" class="button button-quiet">Xóa lịch sử</button></div><div id="historyList" class="history-grid"><span class="empty-history">Chưa có lịch sử tìm kiếm.</span></div></section>
 
         <section id="bookmarksView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">FOLLOW UP</div><h1>Đơn cần kiểm tra</h1><p>Danh sách đơn được đánh dấu để xem lại sau. Dữ liệu lưu trên trình duyệt hiện tại.</p></div><div class="section-heading"><h2>Đã đánh dấu</h2><span id="bookmarkCount" class="count-chip">0 đơn</span></div><div id="bookmarkList" class="history-grid"><span class="empty-history">Chưa có đơn nào được đánh dấu.</span></div></section>
-        <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.3.1 · DIRECT CAMERA</b></span><span>PRIVATE · RESPONSIVE · SECURE</span></footer>
+        <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.3.3 · SOURCE DIAGNOSTICS</b></span><span>PRIVATE · RESPONSIVE · SECURE</span></footer>
       </div>
     </section>
   </main>

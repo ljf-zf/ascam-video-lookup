@@ -84,3 +84,8 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 
 ## v1.3.2 Stream connection timeout
 The video proxy waits up to 45 seconds for ASCAM to return response headers. This timeout applies only to opening the upstream connection; it is cleared as soon as headers arrive and does not cap the MP4 playback duration. If the upstream does not open in time, the API returns HTTP 504 with `UPSTREAM_CONNECT_TIMEOUT`.
+
+
+## v1.3.3 Bounded Source Diagnostics
+
+This release adds an authenticated, sequential diagnostic for a completed session. It requests at most the first 64 KiB from Overview, Waybill, or merged mode and returns response metadata plus a SHA-256 fingerprint. It never returns or stores the MP4 sample. Run each diagnostic button separately; compare the fingerprints to determine whether ASCAM serves distinct source bytes. The playback routes are deliberately unchanged in this diagnostic release.

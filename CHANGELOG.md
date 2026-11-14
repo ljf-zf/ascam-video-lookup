@@ -1,3 +1,11 @@
+## 1.3.3 - Bounded Source Diagnostics
+
+- Added a sequential diagnostic endpoint for Overview, Waybill, and merged video sources.
+- Requests only bytes 0-65535 (64 KiB) and computes a SHA-256 fingerprint in memory.
+- Does not return, persist, or buffer a full MP4; cancels ignored/unbounded responses.
+- Reports upstream status, Content-Range, Content-Type, ETag, bytes read, hash, and elapsed time.
+- Keeps the actual playback endpoints unchanged so the diagnostic isolates source behavior from player behavior.
+
 ## v1.3.2 Stream Connect Timeout
 - Increased only the upstream video-header connection timeout from 12s to 45s; it is cleared immediately after headers arrive, so it does not limit playback duration.
 - Returns HTTP 504 with a structured diagnostic code when ASCAM does not open the stream in time.
