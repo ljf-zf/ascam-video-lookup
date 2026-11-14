@@ -164,6 +164,7 @@ function renderOrder(data, requestedCode) {
   selectedSessions = sessionsOf(data);
   if (!selectedSessions.length) selectedSessions = [selectedOrder];
   selectedSession = selectedSessions[0] || null;
+  if ($("cameraProbeResults")) $("cameraProbeResults").textContent = "Chưa chạy kiểm tra.";
   const latest = selectedSessions[0] || {};
   const code = selectedOrder.orderCode || selectedOrder.OrderCode || requestedCode;
   $("detailCode").textContent = code || "Đơn hàng";
@@ -186,6 +187,7 @@ function renderOrder(data, requestedCode) {
     $("sessions").querySelectorAll(".session-card").forEach(item => item.classList.remove("selected"));
     button.classList.add("selected");
     selectedSession = selectedSessions[Number(button.dataset.sessionIndex)];
+    $("cameraProbeResults").textContent = "Chưa chạy kiểm tra.";
     resetVideo();
     updateSessionHint();
   }));
@@ -194,6 +196,40 @@ function renderOrder(data, requestedCode) {
   resetVideo();
   saveHistory(code);
   updateBookmarkButton();
+}
+function renderCameraProbeResult(result) {
+  const ok = result.httpStatus === 206;
+  const status = result.httpStatus ? `HTTP ${result.httpStatus}` : (result.result || "Lỗi");
+  const details = [
+    result.contentType ? `Content-Type: ${result.contentType}` : "",
+    result.contentRange ? `Content-Range: ${result.contentRange}` : "",
+    result.acceptRanges ? `Accept-Ranges: ${result.acceptRanges}` : "",
+    result.contentLength ? `Content-Length: ${result.contentLength}` : "",
+  ].filter(Boolean).join(" · ");
+  return `<div class="camera-probe-row ${ok ? "probe-good" : result.httpStatus === 200 ? "probe-warn" : "probe-bad"}"><div><b>${esc(result.camId || "Camera")}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${details ? `<small>${esc(details)}</small>` : ""}</div>`;
+}
+async function probeCamera(camId, buttonId) {
+  const sessionId = selectedSession?.sessionId || selectedSession?.id;
+  if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
+  if (selectedSession?.status === "recording") return note("Không kiểm tra video của phiên đang ghi hình. Hãy chọn phiên đã hoàn tất.", true);
+  const button = $(buttonId);
+  const output = $("cameraProbeResults");
+  button.disabled = true;
+  button.dataset.originalText ||= button.textContent;
+  button.textContent = "Đang kiểm tra…";
+  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
+  try {
+    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(camId)}`);
+    const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
+    if (old) old.outerHTML = renderCameraProbeResult(result);
+    else output.insertAdjacentHTML("afterbegin", renderCameraProbeResult(result));
+  } catch (error) {
+    const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
+    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(camId)}</b><p>${esc(error.message)}</p></div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = button.dataset.originalText;
+  }
 }
 function updateSessionHint() {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
@@ -312,6 +348,8 @@ $("logout").addEventListener("click", async () => {
 });
 $("searchForm").addEventListener("submit", event => { event.preventDefault(); search($("query").value); });
 $("createShare").addEventListener("click", share);
+$("probeOverview").addEventListener("click", () => probeCamera("overview", "probeOverview"));
+$("probeWaybill").addEventListener("click", () => probeCamera("waybill", "probeWaybill"));
 $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HISTORY); renderHistory(); });
 
 (async () => {

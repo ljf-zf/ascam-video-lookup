@@ -127,6 +127,62 @@ export async function onRequest({ request, env }) {
       const result = await asc(env, `/orders/${encodeURIComponent(code)}`);
       return result.error ? json({ error: result.error }, result.status) : json(result.data);
     }
+    if (path === "camera-check" && method === "GET") {
+      const sessionId = url.searchParams.get("sessionId") || "";
+      const camId = url.searchParams.get("camId") || "";
+      if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
+      // Only probe role names present in the ASCAM session payload. These are
+      // candidates, not assumed camera IDs; the response tells us whether ASCAM accepts them.
+      if (!["overview", "waybill"].includes(camId)) return json({ error: "Camera candidate không hợp lệ." }, 400);
+      const headers = new Headers({
+        Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
+        Range: "bytes=0-0",
+        Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
+      });
+      let upstream;
+      try {
+        upstream = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?camId=${encodeURIComponent(camId)}`, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(9000),
+          redirect: "follow",
+        });
+      } catch (error) {
+        const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+        return json({
+          ok: false,
+          sessionId,
+          camId,
+          result: timedOut ? "timeout" : "network_error",
+          message: timedOut ? "ASCAM không phản hồi trong 9 giây." : "Không kết nối được ASCAM qua Tunnel.",
+        }, 502);
+      }
+      const result = {
+        ok: upstream.status === 206 || upstream.status === 200,
+        sessionId,
+        camId,
+        httpStatus: upstream.status,
+        contentType: upstream.headers.get("Content-Type") || "",
+        contentRange: upstream.headers.get("Content-Range") || "",
+        acceptRanges: upstream.headers.get("Accept-Ranges") || "",
+        contentLength: upstream.headers.get("Content-Length") || "",
+        rangeHonored: upstream.status === 206,
+        message: upstream.status === 206
+          ? "ASCAM chấp nhận Range; ứng viên camId trả về một phần video."
+          : upstream.status === 200
+            ? "ASCAM trả HTTP 200. Máy chủ đã hủy body ngay sau khi nhận header; cần xác minh Range có được hỗ trợ không."
+            : upstream.status === 400
+              ? "ASCAM từ chối tham số camId hoặc yêu cầu."
+              : upstream.status === 401 || upstream.status === 403
+                ? "ASCAM từ chối xác thực API."
+                : upstream.status === 404
+                  ? "Không tìm thấy video hoặc camId này không được nhận diện."
+                  : `ASCAM trả HTTP ${upstream.status}.`,
+      };
+      // Never read or buffer the MP4 response. Cancel immediately after headers.
+      try { await upstream.body?.cancel(); } catch { /* stream may already be closed */ }
+      return json(result, 200);
+    }
     if (path === "share" && method === "POST") {
       const input = await body(request);
       const code = input.orderCode || "";

@@ -30,6 +30,7 @@ Secrets are not committed to GitHub. After adding/changing Secrets in Cloudflare
 - `POST /api/share`
 - `GET /api/stream?sessionId=...`
 - `GET /api/download?sessionId=...`
+- `GET /api/camera-check?sessionId=...&camId=overview|waybill` — safe diagnostic probe; sends `Range: bytes=0-0`, returns only status/headers, and cancels the upstream video body immediately. `overview` and `waybill` are candidate values based on session roles, not yet confirmed camera IDs.
 
 ## Important API contract notes
 
@@ -56,3 +57,9 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - Order bookmarks and search history are stored in the current browser's local storage; they are not synchronized across devices.
 - Merged MP4 playback/download and ASC-Cloud sharing continue to use the existing authenticated Pages API routes.
 - Mobile uses a slide-out navigation drawer and a single-column workspace.
+
+## v1.2.1 safe camera diagnostics
+- On an order detail, select a completed session and use **Kiểm tra overview** or **Kiểm tra waybill**.
+- The diagnostic does not play or download MP4. It asks ASCAM for byte 0 only and cancels the response body as soon as headers arrive.
+- HTTP 206 means Range was honored. HTTP 200 is inconclusive (the origin may have ignored Range); the body is still canceled. HTTP 400/404 may mean the candidate value is not a valid `camId`.
+- This diagnostic does not change camera recording, ASCAM configuration, or the existing merged-video playback path.

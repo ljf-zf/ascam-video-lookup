@@ -10,3 +10,11 @@
 
 ## V1.1.0 · Focus Cinema
 - Refined the dark Focus Cinema interface and improved responsive behavior.
+
+## v1.2.1 — Safe camera Range diagnostics
+- Added authenticated `GET /api/camera-check?sessionId=...&camId=overview|waybill`.
+- Sends `Range: bytes=0-0` to ASCAM and inspects response headers only.
+- Cancels the upstream MP4 body immediately after headers; never buffers or streams the video to the browser during diagnostics.
+- Added separate UI actions to test the `overview` and `waybill` role values as candidate `camId` values.
+- Existing merged video, order search, bookmarks, login, and ASC-Cloud sharing routes are unchanged.
+- A successful HTTP 206 confirms Range was honored. HTTP 200 is reported as inconclusive because ASCAM may have ignored Range; the body is still canceled immediately.
