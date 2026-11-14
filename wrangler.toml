@@ -5,4 +5,4 @@ compatibility_date = "2026-11-13"
 [vars]
 # Replace this with the real HTTPS Cloudflare Tunnel URL when the store PC is online.
 # Do not put ASCAM_API_TOKEN here; add it as an encrypted Secret in Cloudflare.
-ASCAM_API_BASE = "https://classics-concentrations-flags-literally.trycloudflare.com/api/v1"
+ASCAM_API_BASE = "https://anything-westminster-attachments-statutory.trycloudflare.com/api/v1"
