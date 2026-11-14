@@ -63,3 +63,11 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - The diagnostic does not play or download MP4. It asks ASCAM for byte 0 only and cancels the response body as soon as headers arrive.
 - HTTP 206 means Range was honored. HTTP 200 is inconclusive (the origin may have ignored Range); the body is still canceled. HTTP 400/404 may mean the candidate value is not a valid `camId`.
 - This diagnostic does not change camera recording, ASCAM configuration, or the existing merged-video playback path.
+
+
+## v1.3.0 Quick Playback
+- Added direct MP4 playback for verified ASCAM camera roles `overview` and `waybill`.
+- Added merged-video playback as a separate mode; ASC-Cloud sharing remains independent.
+- `/api/stream` and `/api/download` accept `camId=overview|waybill`; omit `camId` to use the existing merged stream.
+- Forwards browser HTTP Range requests and streams the upstream response without buffering the complete MP4.
+- Bearer Token remains server-side.

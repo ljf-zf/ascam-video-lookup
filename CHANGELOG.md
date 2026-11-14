@@ -18,3 +18,10 @@
 - Added separate UI actions to test the `overview` and `waybill` role values as candidate `camId` values.
 - Existing merged video, order search, bookmarks, login, and ASC-Cloud sharing routes are unchanged.
 - A successful HTTP 206 confirms Range was honored. HTTP 200 is reported as inconclusive because ASCAM may have ignored Range; the body is still canceled immediately.
+
+
+## 1.3.0 - Quick Playback
+- Added direct Overview and Waybill MP4 playback using the camera IDs confirmed by successful HTTP 206 probes.
+- Added explicit Merged Video playback without requiring an ASC-Cloud share first.
+- Extended authenticated stream/download endpoints to accept a whitelisted `camId`, forward Range headers, and stream bytes through Pages Functions.
+- Kept ASC-Cloud sharing as a separate action and preserved existing merged-video behavior.

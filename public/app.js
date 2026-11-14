@@ -153,11 +153,50 @@ function resetVideo() {
   $("videoPlaceholder").classList.remove("hidden");
   $("videoFrameWrap").classList.add("hidden");
   $("videoLinks").classList.add("hidden");
+  $("openShare").classList.add("hidden");
   $("shareResult").classList.add("hidden");
+  $("videoPanelTitle").textContent = "Xem video đóng gói";
   const player = $("videoPlayer");
   player.pause();
   player.removeAttribute("src");
   player.load();
+  document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
+}
+function playbackUrl(mode, download = false) {
+  const sessionId = selectedSession?.sessionId || selectedSession?.id;
+  if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) throw new Error("Phiên đang chọn không có Session ID hợp lệ.");
+  const params = new URLSearchParams({ sessionId: String(sessionId) });
+  if (mode !== "merged") params.set("camId", mode);
+  return `/api/${download ? "download" : "stream"}?${params.toString()}`;
+}
+async function playVideo(mode, button = null) {
+  if (!selectedSession) return note("Hãy chọn phiên đóng gói trước.", true);
+  if (selectedSession.status === "recording") return note("Không phát video khi phiên vẫn đang ghi hình.", true);
+  if (!["overview", "waybill", "merged"].includes(mode)) return;
+  const player = $("videoPlayer");
+  const label = mode === "overview" ? "Camera Overview" : mode === "waybill" ? "Camera Waybill" : "Video ghép";
+  try {
+    const src = playbackUrl(mode);
+    player.pause();
+    player.src = src;
+    player.load();
+    $("videoPlaceholder").classList.add("hidden");
+    $("videoFrameWrap").classList.remove("hidden");
+    $("videoLinks").classList.remove("hidden");
+    $("videoPanelTitle").textContent = label;
+    $("videoFootnote").textContent = "Đang phát qua Cloudflare Pages Function · HTTP Range · Token được giữ ở backend.";
+    $("downloadVideo").href = playbackUrl(mode, true);
+    $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
+    document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
+    if (button) button.disabled = true;
+    const playPromise = player.play();
+    if (playPromise?.catch) await playPromise.catch(() => {});
+    note(`Đã gửi yêu cầu phát ${label}. Nếu video chưa chạy, kiểm tra thông báo lỗi của trình phát.`);
+  } catch (error) {
+    note(error.message || "Không thể mở video.", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 function renderOrder(data, requestedCode) {
   selectedOrder = data?.order || data?.data?.order || data;
@@ -267,22 +306,11 @@ async function share() {
     $("shareResult").innerHTML = `<b>✓ Đã tạo link ASC-Cloud cho đơn ${esc(code)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">${esc(shareUrl)}</a><small>Hết hạn: ${date(data.expiresAt)}. Link được tạo theo đơn hàng, không khẳng định là link riêng của phiên đang chọn.</small>`;
     $("shareResult").classList.remove("hidden");
     $("openShare").href = shareUrl;
-    const sessionId = data.sessionId || selectedSession?.sessionId || selectedSession?.id;
-    if (sessionId && /^\d{6,30}$/.test(String(sessionId))) {
-      $("videoPlayer").src = `/api/stream?sessionId=${encodeURIComponent(sessionId)}`;
-      $("downloadVideo").href = `/api/download?sessionId=${encodeURIComponent(sessionId)}`;
-      $("downloadVideo").classList.remove("disabled");
-      $("videoPlaceholder").classList.add("hidden");
-      $("videoFrameWrap").classList.remove("hidden");
-      $("videoLinks").classList.remove("hidden");
-    } else {
-      $("videoPlaceholder").classList.remove("hidden");
-      $("videoFrameWrap").classList.add("hidden");
-      $("videoLinks").classList.remove("hidden");
-      $("downloadVideo").href = "#";
-      $("downloadVideo").onclick = event => { event.preventDefault(); note("Không có sessionId hợp lệ để tải video MP4.", true); };
-    }
-    note("Đã tạo link ASC-Cloud. Kiểm tra đúng phiên trước khi sử dụng video.");
+    $("openShare").classList.remove("hidden");
+    $("videoLinks").classList.remove("hidden");
+    $("openShare").classList.remove("hidden");
+    $("videoFootnote").textContent = "Link ASC-Cloud đã tạo. Dùng các nút Overview / Waybill để phát video gốc hoặc Video ghép để xem bản ghép.";
+    note("Đã tạo link ASC-Cloud. Video gốc có thể phát riêng mà không cần tạo link chia sẻ.");
   } catch (error) { note(error.message, true); }
   finally { button.innerHTML = 'Tạo link ASC-Cloud <span>↗</span>'; button.disabled = selectedSession?.status === "recording"; }
 }
@@ -348,8 +376,14 @@ $("logout").addEventListener("click", async () => {
 });
 $("searchForm").addEventListener("submit", event => { event.preventDefault(); search($("query").value); });
 $("createShare").addEventListener("click", share);
+$("videoPlayer").addEventListener("error", () => {
+  const code = $("videoPlayer").error?.code;
+  const reasons = { 2: "Lỗi mạng khi nhận video từ ASCAM.", 3: "Trình duyệt không giải mã được video MP4.", 4: "Nguồn video không khả dụng hoặc định dạng không được hỗ trợ." };
+  note(reasons[code] || "Không thể phát video. Kiểm tra kết nối ASCAM và thử lại.", true);
+});
 $("probeOverview").addEventListener("click", () => probeCamera("overview", "probeOverview"));
 $("probeWaybill").addEventListener("click", () => probeCamera("waybill", "probeWaybill"));
+document.querySelectorAll("[data-play-camera]").forEach(button => button.addEventListener("click", () => playVideo(button.dataset.playCamera, button)));
 $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HISTORY); renderHistory(); });
 
 (async () => {

@@ -199,18 +199,36 @@ export async function onRequest({ request, env }) {
     }
     if ((path === "download" || path === "stream") && method === "GET") {
       const sessionId = url.searchParams.get("sessionId") || "";
+      const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      const headers = new Headers({ Authorization: `Bearer ${env.ASCAM_API_TOKEN}` });
+      if (camId && !["overview", "waybill"].includes(camId)) return json({ error: "camId không hợp lệ." }, 400);
+      const headers = new Headers({
+        Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
+        Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
+      });
       const range = request.headers.get("Range");
       if (range) headers.set("Range", range);
-      const response = await fetch(base(env) + `/videos/${sessionId}/download?merged=1`, { headers });
-      if (!response.ok && response.status !== 206) return json({ error: `ASCAM trả HTTP ${response.status} khi tải video.` }, response.status);
+      const videoQuery = camId ? `camId=${encodeURIComponent(camId)}` : "merged=1";
+      let response;
+      try {
+        response = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${videoQuery}`, {
+          method: "GET", headers, signal: request.signal, redirect: "follow",
+        });
+      } catch (error) {
+        return json({ error: error?.name === "AbortError" ? "Yêu cầu phát video đã bị hủy." : "Không kết nối được ASCAM để phát video." }, 502);
+      }
+      if (!response.ok && response.status !== 206) {
+        try { await response.body?.cancel(); } catch {}
+        return json({ error: `ASCAM trả HTTP ${response.status} khi ${path === "stream" ? "phát" : "tải"} video.` }, response.status);
+      }
       const outputHeaders = new Headers();
       for (const key of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
         if (response.headers.has(key)) outputHeaders.set(key, response.headers.get(key));
       }
-      outputHeaders.set("Cache-Control", "private, no-store");
-      outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
+      outputHeaders.set("Cache-Control", "private, no-store, no-transform");
+      outputHeaders.set("X-Content-Type-Options", "nosniff");
+      const suffix = camId ? `-${camId}` : "-merged";
+      outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}${suffix}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
     }
     return json({ error: "Không tìm thấy API." }, 404);
