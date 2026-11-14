@@ -1,3 +1,8 @@
+## v1.3.2 Stream Connect Timeout
+- Increased only the upstream video-header connection timeout from 12s to 45s; it is cleared immediately after headers arrive, so it does not limit playback duration.
+- Returns HTTP 504 with a structured diagnostic code when ASCAM does not open the stream in time.
+- Preserves direct camera IDs (`tc-b-N` / `vd-b-N`), merged mode, Range forwarding, and client-disconnect cancellation.
+
 # Changelog
 
 ## V1.2.0 · Smart Workspace

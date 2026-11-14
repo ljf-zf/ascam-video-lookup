@@ -80,3 +80,7 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - Merged playback remains a separate explicit mode using `merged=1`.
 - Camera probes request only `Range: bytes=0-0`, cancel the response body after headers, and time out after 5 seconds.
 - API JSON calls have bounded timeouts; video streaming continues to forward the browser's Range header without buffering the MP4.
+
+
+## v1.3.2 Stream connection timeout
+The video proxy waits up to 45 seconds for ASCAM to return response headers. This timeout applies only to opening the upstream connection; it is cleared as soon as headers arrive and does not cap the MP4 playback duration. If the upstream does not open in time, the API returns HTTP 504 with `UPSTREAM_CONNECT_TIMEOUT`.

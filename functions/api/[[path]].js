@@ -217,10 +217,13 @@ export async function onRequest({ request, env }) {
       if (range) headers.set("Range", range);
       const videoQuery = camId ? `camId=${encodeURIComponent(camId)}` : "merged=1";
       let response;
-      // Timeout only the connection/header phase. Clear it as soon as headers arrive
-      // so long MP4 playback is not cut off after a fixed number of seconds.
+      // Timeout only the connection/header phase. Allow ASCAM enough time to open a
+      // source stream (some sessions need longer than 12s). Clear the timer as soon
+      // as headers arrive, so playback duration is never capped by this timeout.
       const connectController = new AbortController();
-      const connectTimer = setTimeout(() => connectController.abort(), 12000);
+      const STREAM_CONNECT_TIMEOUT_MS = 45000;
+      const connectStartedAt = Date.now();
+      const connectTimer = setTimeout(() => connectController.abort(), STREAM_CONNECT_TIMEOUT_MS);
       const streamSignal = request.signal
         ? AbortSignal.any([request.signal, connectController.signal])
         : connectController.signal;
@@ -230,7 +233,16 @@ export async function onRequest({ request, env }) {
         });
       } catch (error) {
         const timedOut = connectController.signal.aborted && !request.signal?.aborted;
-        return json({ error: request.signal?.aborted ? "Yêu cầu phát video đã bị hủy." : timedOut ? "ASCAM mất quá 12 giây để mở luồng video." : "Không kết nối được ASCAM để phát video." }, 502);
+        return json({
+          error: request.signal?.aborted
+            ? "Yêu cầu phát video đã bị hủy do trình duyệt đóng hoặc đổi luồng."
+            : timedOut
+              ? `ASCAM chưa trả header video sau ${Math.round((Date.now() - connectStartedAt) / 1000)} giây. Hãy kiểm tra Tunnel hoặc trạng thái dịch vụ video ASCAM.`
+              : "Không kết nối được ASCAM để phát video.",
+          code: request.signal?.aborted ? "CLIENT_ABORTED" : timedOut ? "UPSTREAM_CONNECT_TIMEOUT" : "UPSTREAM_NETWORK_ERROR",
+          camId: camId || null,
+          sessionId,
+        }, timedOut ? 504 : 502);
       } finally {
         clearTimeout(connectTimer);
       }
