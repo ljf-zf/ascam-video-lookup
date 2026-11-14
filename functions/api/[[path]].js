@@ -131,9 +131,9 @@ export async function onRequest({ request, env }) {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      // Only probe role names present in the ASCAM session payload. These are
-      // candidates, not assumed camera IDs; the response tells us whether ASCAM accepts them.
-      if (!["overview", "waybill"].includes(camId)) return json({ error: "Camera candidate không hợp lệ." }, 400);
+      // ASCAM camera IDs follow the configured station camera IDs:
+      // overview = tc-b-N, waybill = vd-b-N (confirmed in Bàn & Camera).
+      if (!/^(tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "Camera ID không hợp lệ. Dùng tc-b-N hoặc vd-b-N." }, 400);
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Range: "bytes=0-0",
@@ -201,7 +201,7 @@ export async function onRequest({ request, env }) {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      if (camId && !["overview", "waybill"].includes(camId)) return json({ error: "camId không hợp lệ." }, 400);
+      if (camId && !/^(tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "camId không hợp lệ. Dùng tc-b-N hoặc vd-b-N." }, 400);
       if (!env.ASCAM_API_TOKEN) return json({ error: "Chưa cấu hình ASCAM_API_TOKEN." }, 503);
 
       // Keep the browser's byte-range request intact. For an initial media

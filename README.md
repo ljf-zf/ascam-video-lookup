@@ -80,3 +80,14 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - The stream route validates the upstream MP4 content type and reports upstream HTTP failures as actionable JSON instead of silently returning a non-video body.
 - Preserves streaming response bodies without buffering the full MP4; only forwards Content-Length when safe.
 - The player now reports metadata, can-play, stalled, and decode/network errors more clearly.
+
+
+## Camera ID mapping (v1.3.2)
+
+The selected ASCAM session must include its packing station ID (`stationId`, e.g. `b-3`). The app resolves the configured camera IDs dynamically:
+
+- Overview: `tc-${stationId}` (e.g. `tc-b-3`)
+- Waybill: `vd-${stationId}` (e.g. `vd-b-3`)
+- Merged: `merged=1` (separate merged-video endpoint)
+
+This mapping is used consistently for playback, MP4 download, and the one-byte Range probe. If the session does not include a valid `stationId`, the app reports that it cannot identify the source camera rather than guessing.

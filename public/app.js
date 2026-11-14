@@ -162,11 +162,23 @@ function resetVideo() {
   player.load();
   document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
 }
+function cameraIdForMode(mode) {
+  if (mode === "merged") return "";
+  // Each recording session belongs to a packing station (b-1, b-2...).
+  // ASCAM's configured camera IDs are tc-b-N (overview) and vd-b-N (waybill).
+  const stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
+  if (!/^b-\d{1,3}$/.test(stationId)) {
+    throw new Error("Không tìm thấy stationId hợp lệ của phiên. Không thể xác định camera gốc.");
+  }
+  if (mode === "overview") return `tc-${stationId}`;
+  if (mode === "waybill") return `vd-${stationId}`;
+  throw new Error("Chế độ phát video không hợp lệ.");
+}
 function playbackUrl(mode, download = false) {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
   if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) throw new Error("Phiên đang chọn không có Session ID hợp lệ.");
   const params = new URLSearchParams({ sessionId: String(sessionId) });
-  if (mode !== "merged") params.set("camId", mode);
+  if (mode !== "merged") params.set("camId", cameraIdForMode(mode));
   return `/api/${download ? "download" : "stream"}?${params.toString()}`;
 }
 async function playVideo(mode, button = null) {
@@ -257,15 +269,18 @@ async function probeCamera(camId, buttonId) {
   button.disabled = true;
   button.dataset.originalText ||= button.textContent;
   button.textContent = "Đang kiểm tra…";
-  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
+  let actualCamId;
+  try { actualCamId = cameraIdForMode(camId); }
+  catch (error) { return note(error.message, true); }
+  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(actualCamId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
   try {
-    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(camId)}`);
+    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(actualCamId)}`);
     const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
     if (old) old.outerHTML = renderCameraProbeResult(result);
     else output.insertAdjacentHTML("afterbegin", renderCameraProbeResult(result));
   } catch (error) {
     const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
-    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(camId)}</b><p>${esc(error.message)}</p></div>`;
+    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(actualCamId)}</b><p>${esc(error.message)}</p></div>`;
   } finally {
     button.disabled = false;
     button.textContent = button.dataset.originalText;
