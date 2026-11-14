@@ -73,21 +73,10 @@ Node.js is only needed if you choose to run Wrangler locally. It is not required
 - Bearer Token remains server-side.
 
 
-## v1.3.1 — Quick Playback streaming reliability
-- Stream requests now forward valid browser Range and If-Range headers unchanged.
-- When a media player starts without a Range header, the Pages Function requests an open-ended `bytes=0-` range from ASCAM for progressive playback.
-- Requests explicitly ask for identity encoding so byte ranges and Content-Length remain consistent.
-- The stream route validates the upstream MP4 content type and reports upstream HTTP failures as actionable JSON instead of silently returning a non-video body.
-- Preserves streaming response bodies without buffering the full MP4; only forwards Content-Length when safe.
-- The player now reports metadata, can-play, stalled, and decode/network errors more clearly.
-
-
-## Camera ID mapping (v1.3.2)
-
-The selected ASCAM session must include its packing station ID (`stationId`, e.g. `b-3`). The app resolves the configured camera IDs dynamically:
-
-- Overview: `tc-${stationId}` (e.g. `tc-b-3`)
-- Waybill: `vd-${stationId}` (e.g. `vd-b-3`)
-- Merged: `merged=1` (separate merged-video endpoint)
-
-This mapping is used consistently for playback, MP4 download, and the one-byte Range probe. If the session does not include a valid `stationId`, the app reports that it cannot identify the source camera rather than guessing.
+## v1.3.1 Direct Camera
+- Overview resolves to the station camera ID `tc-b-N` (example: `tc-b-3`).
+- Waybill resolves to `vd-b-N` (example: `vd-b-3`).
+- These IDs are sent as `camId` to `GET /api/v1/videos/{sessionId}/download`.
+- Merged playback remains a separate explicit mode using `merged=1`.
+- Camera probes request only `Range: bytes=0-0`, cancel the response body after headers, and time out after 5 seconds.
+- API JSON calls have bounded timeouts; video streaming continues to forward the browser's Range header without buffering the MP4.

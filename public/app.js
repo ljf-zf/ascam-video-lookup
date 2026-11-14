@@ -53,9 +53,12 @@ function appView() {
   setAuthStatus(true);
 }
 async function api(path, options = {}) {
+  const timeoutSignal = AbortSignal.timeout(15000);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch("/api/" + path, {
     credentials: "same-origin",
     ...options,
+    signal,
     headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
   });
   const data = await response.json().catch(() => ({ error: "Phản hồi máy chủ không hợp lệ." }));
@@ -164,15 +167,12 @@ function resetVideo() {
 }
 function cameraIdForMode(mode) {
   if (mode === "merged") return "";
-  // Each recording session belongs to a packing station (b-1, b-2...).
-  // ASCAM's configured camera IDs are tc-b-N (overview) and vd-b-N (waybill).
   const stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
   if (!/^b-\d{1,3}$/.test(stationId)) {
-    throw new Error("Không tìm thấy stationId hợp lệ của phiên. Không thể xác định camera gốc.");
+    throw new Error("Không tìm thấy stationId của phiên. Không thể xác định ID camera gốc an toàn.");
   }
-  if (mode === "overview") return `tc-${stationId}`;
-  if (mode === "waybill") return `vd-${stationId}`;
-  throw new Error("Chế độ phát video không hợp lệ.");
+  // ASCAM station configuration: tc-b-N = Overview, vd-b-N = Waybill.
+  return `${mode === "overview" ? "tc" : "vd"}-${stationId}`;
 }
 function playbackUrl(mode, download = false) {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
@@ -190,14 +190,15 @@ async function playVideo(mode, button = null) {
   try {
     const src = playbackUrl(mode);
     player.pause();
-    player.preload = "auto";
     player.src = src;
     player.load();
     $("videoPlaceholder").classList.add("hidden");
     $("videoFrameWrap").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
     $("videoPanelTitle").textContent = label;
-    $("videoFootnote").textContent = "Đang kết nối luồng MP4 qua Cloudflare · HTTP Range · Token được giữ ở backend.";
+    $("videoFootnote").textContent = mode === "merged"
+      ? "Đang phát video ghép từ ASCAM."
+      : `Đang phát camera gốc ${cameraIdForMode(mode)} · HTTP Range · Token được giữ ở backend.`;
     $("downloadVideo").href = playbackUrl(mode, true);
     $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
     document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
@@ -260,30 +261,33 @@ function renderCameraProbeResult(result) {
   ].filter(Boolean).join(" · ");
   return `<div class="camera-probe-row ${ok ? "probe-good" : result.httpStatus === 200 ? "probe-warn" : "probe-bad"}"><div><b>${esc(result.camId || "Camera")}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${details ? `<small>${esc(details)}</small>` : ""}</div>`;
 }
-async function probeCamera(camId, buttonId) {
+let probeBusy = false;
+async function probeCamera(mode, buttonId) {
+  if (probeBusy) return note("Đang kiểm tra camera khác. Vui lòng đợi hoàn tất.", true);
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
+  let camId;
+  try { camId = cameraIdForMode(mode); } catch (error) { return note(error.message, true); }
   if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
   if (selectedSession?.status === "recording") return note("Không kiểm tra video của phiên đang ghi hình. Hãy chọn phiên đã hoàn tất.", true);
   const button = $(buttonId);
   const output = $("cameraProbeResults");
+  probeBusy = true;
   button.disabled = true;
   button.dataset.originalText ||= button.textContent;
   button.textContent = "Đang kiểm tra…";
-  let actualCamId;
-  try { actualCamId = cameraIdForMode(camId); }
-  catch (error) { return note(error.message, true); }
-  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(actualCamId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
+  output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId)}</b><p>Đang gửi yêu cầu Range 0–0…</p></div>`);
   try {
-    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(actualCamId)}`);
+    const result = await api(`camera-check?sessionId=${encodeURIComponent(sessionId)}&camId=${encodeURIComponent(camId)}`);
     const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
     if (old) old.outerHTML = renderCameraProbeResult(result);
     else output.insertAdjacentHTML("afterbegin", renderCameraProbeResult(result));
   } catch (error) {
     const old = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
-    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(actualCamId)}</b><p>${esc(error.message)}</p></div>`;
+    if (old) old.outerHTML = `<div class="camera-probe-row probe-bad"><b>${esc(camId)}</b><p>${esc(error.message)}</p></div>`;
   } finally {
     button.disabled = false;
     button.textContent = button.dataset.originalText;
+    probeBusy = false;
   }
 }
 function updateSessionHint() {
@@ -325,7 +329,7 @@ async function share() {
     $("openShare").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
     $("openShare").classList.remove("hidden");
-    $("videoFootnote").textContent = "Link ASC-Cloud đã tạo. Dùng các nút Overview / Waybill để phát video gốc hoặc Video ghép để xem bản ghép.";
+    $("videoFootnote").textContent = "Link ASC-Cloud đã tạo riêng ở cấp đơn hàng. Overview và Waybill phát camera gốc theo ID camera; Video ghép là luồng riêng.";
     note("Đã tạo link ASC-Cloud. Video gốc có thể phát riêng mà không cần tạo link chia sẻ.");
   } catch (error) { note(error.message, true); }
   finally { button.innerHTML = 'Tạo link ASC-Cloud <span>↗</span>'; button.disabled = selectedSession?.status === "recording"; }
@@ -392,28 +396,10 @@ $("logout").addEventListener("click", async () => {
 });
 $("searchForm").addEventListener("submit", event => { event.preventDefault(); search($("query").value); });
 $("createShare").addEventListener("click", share);
-$("videoPlayer").addEventListener("loadedmetadata", () => {
-  const player = $("videoPlayer");
-  $("videoFootnote").textContent = `Đã nhận metadata video · ${Math.round(player.duration || 0)} giây · Có thể tua bằng thanh thời gian.`;
-});
-$("videoPlayer").addEventListener("canplay", () => {
-  $("videoFootnote").textContent = "Video đã sẵn sàng phát · Dữ liệu được truyền theo luồng, không tải toàn bộ trước.";
-});
-$("videoPlayer").addEventListener("stalled", () => {
-  $("videoFootnote").textContent = "Luồng video đang chậm hoặc tạm ngắt. Chờ một chút hoặc chọn phát lại.";
-});
 $("videoPlayer").addEventListener("error", () => {
-  const player = $("videoPlayer");
-  const code = player.error?.code;
-  const reasons = {
-    1: "Yêu cầu phát video đã bị hủy.",
-    2: "Lỗi mạng khi nhận video từ ASCAM/Cloudflare. Hãy thử lại một lần.",
-    3: "Trình duyệt không giải mã được luồng MP4 nhận từ ASCAM.",
-    4: "Nguồn video không khả dụng hoặc phản hồi không phải MP4."
-  };
-  const message = reasons[code] || "Không thể phát video. Hãy thử lại hoặc kiểm tra trạng thái ASCAM.";
-  $("videoFootnote").textContent = message;
-  note(message, true);
+  const code = $("videoPlayer").error?.code;
+  const reasons = { 2: "Lỗi mạng khi nhận video từ ASCAM.", 3: "Trình duyệt không giải mã được video MP4.", 4: "Nguồn video không khả dụng hoặc định dạng không được hỗ trợ." };
+  note(reasons[code] || "Không thể phát video. Kiểm tra kết nối ASCAM và thử lại.", true);
 });
 $("probeOverview").addEventListener("click", () => probeCamera("overview", "probeOverview"));
 $("probeWaybill").addEventListener("click", () => probeCamera("waybill", "probeWaybill"));

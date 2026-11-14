@@ -56,10 +56,16 @@ function base(env) {
 }
 async function asc(env, path, init = {}) {
   if (!env.ASCAM_API_TOKEN) throw new Error("Chưa cấu hình ASCAM_API_TOKEN.");
-  const headers = new Headers(init.headers || {});
+  const { timeoutMs = 8000, ...fetchInit } = init;
+  const headers = new Headers(fetchInit.headers || {});
   headers.set("Authorization", `Bearer ${env.ASCAM_API_TOKEN}`);
-  if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(base(env) + path, { ...init, headers });
+  if (fetchInit.body) headers.set("Content-Type", "application/json");
+  // Bound API calls so a slow tunnel cannot leave a request hanging indefinitely.
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = fetchInit.signal
+    ? AbortSignal.any([fetchInit.signal, timeoutSignal])
+    : timeoutSignal;
+  const response = await fetch(base(env) + path, { ...fetchInit, headers, signal });
   const raw = await response.text();
   let data;
   try { data = JSON.parse(raw); } catch { data = { message: raw.slice(0, 300) }; }
@@ -102,7 +108,7 @@ export async function onRequest({ request, env }) {
       return json({ website: "ok", ascam: "not_configured", message: error.message });
     }
     try {
-      const result = await asc(env, "/health", { signal: AbortSignal.timeout(7000) });
+      const result = await asc(env, "/health", { timeoutMs: 5000 });
       if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error, httpStatus: result.status });
       return json({ website: "ok", ascam: "connected", message: "ASCAM API phản hồi bình thường." });
     } catch (error) {
@@ -114,7 +120,7 @@ export async function onRequest({ request, env }) {
     if (path === "search" && method === "GET") {
       const query = (url.searchParams.get("q") || "").trim();
       if (query.length < 4 || query.length > 80) return json({ error: "Nhập mã đơn đầy đủ hoặc ít nhất 4 số cuối." }, 400);
-      const result = await asc(env, `/orders?${new URLSearchParams({ q: query, page: "1", pageSize: "500" })}`);
+      const result = await asc(env, `/orders?${new URLSearchParams({ q: query, page: "1", pageSize: "500" })}`, { timeoutMs: 10000 });
       if (result.error) return json({ error: result.error }, result.status);
       const data = result.data;
       let items = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : Array.isArray(data.data?.items) ? data.data.items : [];
@@ -124,16 +130,16 @@ export async function onRequest({ request, env }) {
     if (path === "order" && method === "GET") {
       const code = url.searchParams.get("code") || "";
       if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
-      const result = await asc(env, `/orders/${encodeURIComponent(code)}`);
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 10000 });
       return result.error ? json({ error: result.error }, result.status) : json(result.data);
     }
     if (path === "camera-check" && method === "GET") {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      // ASCAM camera IDs follow the configured station camera IDs:
-      // overview = tc-b-N, waybill = vd-b-N (confirmed in Bàn & Camera).
-      if (!/^(tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "Camera ID không hợp lệ. Dùng tc-b-N hoặc vd-b-N." }, 400);
+      // Camera IDs come from the ASCAM station configuration:
+      // overview = tc-b-N, waybill = vd-b-N (for example tc-b-3 / vd-b-3).
+      if (!/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "Camera ID không hợp lệ. Dùng ID dạng tc-b-3 hoặc vd-b-3." }, 400);
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Range: "bytes=0-0",
@@ -144,7 +150,7 @@ export async function onRequest({ request, env }) {
         upstream = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?camId=${encodeURIComponent(camId)}`, {
           method: "GET",
           headers,
-          signal: AbortSignal.timeout(9000),
+          signal: AbortSignal.timeout(5000),
           redirect: "follow",
         });
       } catch (error) {
@@ -192,6 +198,7 @@ export async function onRequest({ request, env }) {
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
         body: JSON.stringify({ storage: "cloud", role: "merged", lang: "vi", theme: "dark" }),
+        timeoutMs: 15000,
       });
       if (result.error) return json({ error: result.error }, result.status);
       if (!result.data.shareUrl && !result.data.shareURL) return json({ error: "ASCAM không trả shareUrl." }, 502);
@@ -201,83 +208,42 @@ export async function onRequest({ request, env }) {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      if (camId && !/^(tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "camId không hợp lệ. Dùng tc-b-N hoặc vd-b-N." }, 400);
-      if (!env.ASCAM_API_TOKEN) return json({ error: "Chưa cấu hình ASCAM_API_TOKEN." }, 503);
-
-      // Keep the browser's byte-range request intact. For an initial media
-      // request without Range, ask ASCAM for an open-ended range so the player
-      // can begin progressively instead of triggering an eager full-file fetch.
+      if (camId && !/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "camId không hợp lệ. Dùng ID dạng tc-b-3 hoặc vd-b-3." }, 400);
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
-        "Accept-Encoding": "identity",
       });
-      const incomingRange = request.headers.get("Range");
-      if (incomingRange && /^bytes=\d*-\d*(,\s*\d*-\d*)*$/.test(incomingRange)) {
-        headers.set("Range", incomingRange);
-      } else if (path === "stream") {
-        headers.set("Range", "bytes=0-");
-      }
-      const ifRange = request.headers.get("If-Range");
-      if (ifRange) headers.set("If-Range", ifRange);
-
+      const range = request.headers.get("Range");
+      if (range) headers.set("Range", range);
       const videoQuery = camId ? `camId=${encodeURIComponent(camId)}` : "merged=1";
       let response;
+      // Timeout only the connection/header phase. Clear it as soon as headers arrive
+      // so long MP4 playback is not cut off after a fixed number of seconds.
+      const connectController = new AbortController();
+      const connectTimer = setTimeout(() => connectController.abort(), 12000);
+      const streamSignal = request.signal
+        ? AbortSignal.any([request.signal, connectController.signal])
+        : connectController.signal;
       try {
         response = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${videoQuery}`, {
-          method: "GET",
-          headers,
-          signal: request.signal,
-          redirect: "follow",
+          method: "GET", headers, signal: streamSignal, redirect: "follow",
         });
       } catch (error) {
-        return json({
-          error: error?.name === "AbortError"
-            ? "Yêu cầu phát video đã bị hủy."
-            : "Không kết nối được ASCAM để phát video.",
-          detail: error?.name === "TimeoutError" ? "ASCAM phản hồi quá thời gian." : undefined,
-        }, 502);
+        const timedOut = connectController.signal.aborted && !request.signal?.aborted;
+        return json({ error: request.signal?.aborted ? "Yêu cầu phát video đã bị hủy." : timedOut ? "ASCAM mất quá 12 giây để mở luồng video." : "Không kết nối được ASCAM để phát video." }, 502);
+      } finally {
+        clearTimeout(connectTimer);
       }
-
-      const contentType = response.headers.get("Content-Type") || "";
       if (!response.ok && response.status !== 206) {
-        let detail = "";
-        if (/application\/json|text\/plain/i.test(contentType)) {
-          try { detail = (await response.clone().text()).slice(0, 300); } catch {}
-        }
         try { await response.body?.cancel(); } catch {}
-        return json({
-          error: `ASCAM trả HTTP ${response.status} khi ${path === "stream" ? "phát" : "tải"} video.`,
-          upstreamStatus: response.status,
-          detail,
-        }, response.status >= 400 && response.status <= 599 ? response.status : 502);
+        return json({ error: `ASCAM trả HTTP ${response.status} khi ${path === "stream" ? "phát" : "tải"} video.` }, response.status);
       }
-      if (!/^video\/mp4(?:\s*;|$)/i.test(contentType) && !/application\/octet-stream/i.test(contentType)) {
-        let detail = "";
-        try { detail = (await response.clone().text()).slice(0, 300); } catch {}
-        try { await response.body?.cancel(); } catch {}
-        return json({
-          error: "ASCAM không trả về dữ liệu MP4.",
-          upstreamStatus: response.status,
-          contentType,
-          detail,
-        }, 502);
-      }
-      if (!response.body) return json({ error: "ASCAM không trả luồng video." }, 502);
-
       const outputHeaders = new Headers();
-      for (const key of ["Content-Type", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
+      for (const key of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
         if (response.headers.has(key)) outputHeaders.set(key, response.headers.get(key));
-      }
-      // Only preserve Content-Length when the upstream body is not encoded.
-      const encoding = response.headers.get("Content-Encoding");
-      if (response.headers.has("Content-Length") && (!encoding || encoding === "identity")) {
-        outputHeaders.set("Content-Length", response.headers.get("Content-Length"));
       }
       outputHeaders.set("Cache-Control", "private, no-store, no-transform");
       outputHeaders.set("X-Content-Type-Options", "nosniff");
-      outputHeaders.set("X-Accel-Buffering", "no");
-      outputHeaders.set("Accept-Ranges", response.headers.get("Accept-Ranges") || "bytes");
       const suffix = camId ? `-${camId}` : "-merged";
       outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}${suffix}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
