@@ -181,6 +181,9 @@ function resetVideo() {
   player.pause();
   player.removeAttribute("src");
   player.load();
+  const frame = $("shareFrame"); if (frame) { frame.src = "about:blank"; frame.classList.add("hidden"); }
+  player.classList.remove("hidden");
+  $("downloadVideo").classList.remove("hidden");
   document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
   updateShareButton();
 }
@@ -249,37 +252,49 @@ function playbackUrl(mode, download = false) {
 }
 async function playVideo(mode, button = null) {
   if (!selectedSession) return note("Hãy chọn phiên đóng gói trước.", true);
-  if (selectedSession.status === "recording") return note("Không phát video khi phiên vẫn đang ghi hình.", true);
+  if (selectedSession.status === "recording") return note("Phiên đang ghi hình. Hãy đợi ASCAM hoàn tất.", true);
   if (!["overview", "waybill", "merged"].includes(mode)) return;
-  const player = $("videoPlayer");
+  const player = $("videoPlayer"), frame = $("shareFrame");
   const label = mode === "overview" ? "Camera Overview" : mode === "waybill" ? "Camera Waybill" : "Video ghép";
-  selectedPlaybackMode = mode;
-  updateShareButton();
+  selectedPlaybackMode = mode; updateShareButton();
+  if (button) button.disabled = true;
   try {
-    const src = playbackUrl(mode);
-    player.pause();
-    player.src = src;
-    player.load();
-    $("videoPlaceholder").classList.add("hidden");
-    $("videoFrameWrap").classList.remove("hidden");
-    $("videoLinks").classList.remove("hidden");
-    $("videoPanelTitle").textContent = label;
-    const cameraInfo = mode === "merged" ? null : cameraDetailsForMode(mode);
-    $("videoFootnote").textContent = mode === "merged"
-      ? "Đang phát video ghép từ ASCAM."
-      : `Đang phát cameraId=${cameraInfo.id} (${cameraInfo.name}) · ${cameraInfo.source} · HTTP Range · Token giữ ở backend.`;
-    $("downloadVideo").href = playbackUrl(mode, true);
-    $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
+    if (mode === "overview" || mode === "waybill") {
+      // Never call the observed hanging /videos/{id}/download?camId=... route.
+      // Use ASCAM's order-level P2P role API instead.
+      const role = mode === "overview" ? "main" : "sub";
+      const data = await api("share", { method: "POST", timeoutMs: 15000,
+        body: JSON.stringify({ orderCode: currentOrderCode(), role, mode: "p2p" }) });
+      const shareUrl = data.shareUrl || data.shareURL || data.p2pUrl || data.url;
+      if (!shareUrl) throw new Error("ASCAM không trả URL P2P cho góc camera này.");
+      lastShare = data;
+      player.pause(); player.removeAttribute("src"); player.load(); player.classList.add("hidden");
+      frame.src = shareUrl; frame.classList.remove("hidden");
+      $("videoPlaceholder").classList.add("hidden"); $("videoFrameWrap").classList.remove("hidden");
+      $("videoLinks").classList.remove("hidden"); $("videoPanelTitle").textContent = label;
+      $("openShare").href = shareUrl; $("openShare").textContent = "Mở video trực tiếp ↗"; $("openShare").classList.remove("hidden");
+      $("downloadVideo").classList.add("hidden");
+      const multiSession = selectedSessions.length > 1 ? " Lưu ý: API chia sẻ xác nhận ở cấp đơn hàng, chưa có sessionId; đơn nhiều phiên có thể mở phiên khác." : "";
+      $("videoFootnote").textContent = `P2P role=${role}; không tạo MP4 ghép/không upload ASC-Cloud trước.${multiSession}`;
+      $("shareResult").innerHTML = `<b>✓ Đã cấp link P2P · ${esc(label)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">Mở video trong tab mới ↗</a><small>Không gọi endpoint tải video theo camId để tránh làm treo ASCAM.</small>`;
+      $("shareResult").classList.remove("hidden");
+      document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
+      note(`Đã nhận link P2P ${label}. Nếu khung xem không hiển thị do ASCAM chặn nhúng, bấm “Mở video trực tiếp”.`);
+      return;
+    }
+    frame.src = "about:blank"; frame.classList.add("hidden"); player.classList.remove("hidden");
+    player.pause(); player.src = playbackUrl("merged"); player.load();
+    $("videoPlaceholder").classList.add("hidden"); $("videoFrameWrap").classList.remove("hidden");
+    $("videoLinks").classList.remove("hidden"); $("videoPanelTitle").textContent = label;
+    $("videoFootnote").textContent = "Đang phát video ghép ASCAM. Đây có thể là luồng cần xử lý lâu hơn; dùng Overview/Waybill P2P để kiểm tra nhanh.";
+    $("downloadVideo").href = playbackUrl("merged", true);
+    $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-merged.mp4`;
+    $("downloadVideo").classList.remove("hidden"); $("openShare").classList.add("hidden");
     document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
-    if (button) button.disabled = true;
-    const playPromise = player.play();
-    if (playPromise?.catch) await playPromise.catch(() => {});
-    note(`Đã gửi yêu cầu phát ${label}. Nếu video chưa chạy, kiểm tra thông báo lỗi của trình phát.`);
-  } catch (error) {
-    note(error.message || "Không thể mở video.", true);
-  } finally {
-    if (button) button.disabled = false;
-  }
+    const playPromise = player.play(); if (playPromise?.catch) await playPromise.catch(() => {});
+    note("Đã gửi yêu cầu phát video ghép.");
+  } catch (error) { note(error.message || "Không thể mở video.", true); }
+  finally { if (button) button.disabled = false; }
 }
 function renderOrder(data, requestedCode) {
   selectedOrder = data?.order || data?.data?.order || data;
@@ -574,10 +589,6 @@ $("videoPlayer").addEventListener("error", () => {
   const reasons = { 2: "Lỗi mạng khi nhận video từ ASCAM.", 3: "Trình duyệt không giải mã được video MP4.", 4: "Nguồn video không khả dụng hoặc định dạng không được hỗ trợ." };
   note(reasons[code] || "Không thể phát video. Kiểm tra kết nối ASCAM và thử lại.", true);
 });
-$("probeOverview").addEventListener("click", () => diagnoseVideoSource("overview", "probeOverview"));
-$("probeWaybill").addEventListener("click", () => diagnoseVideoSource("waybill", "probeWaybill"));
-$("probeMerged").addEventListener("click", () => diagnoseVideoSource("merged", "probeMerged"));
-$("probeAll").addEventListener("click", event => diagnoseAllVideoSources(event.currentTarget));
 document.querySelectorAll("[data-play-camera]").forEach(button => button.addEventListener("click", () => playVideo(button.dataset.playCamera, button)));
 $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HISTORY); renderHistory(); });
 
