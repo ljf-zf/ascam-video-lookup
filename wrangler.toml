@@ -3,6 +3,6 @@ pages_build_output_dir = "./public"
 compatibility_date = "2026-11-13"
 
 [vars]
-# Replace this with the real HTTPS Cloudflare Tunnel URL when the store PC is online.
-# Do not put ASCAM_API_TOKEN here; add it as an encrypted Secret in Cloudflare.
+# Preferred direct public endpoint: no store-PC Tunnel required.
+# Keep ASCAM_API_TOKEN as an encrypted Cloudflare Secret; never put it here.
 ASCAM_API_BASE = "https://goldentech.ghihinh.com/api/v1"

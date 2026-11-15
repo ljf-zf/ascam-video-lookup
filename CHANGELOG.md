@@ -1,3 +1,12 @@
+## 1.3.4 - Hybrid-Cloud No-Cache Camera Routing
+
+- Sets `cache: "no-store"` on upstream camera diagnostics and video stream/download requests.
+- Adds no-store request headers to avoid a CDN/cache key that omits `camId` returning the same merged response for every mode.
+- Moves diagnostics to a bounded 64 KiB sample at byte offset 1 MiB, after common MP4 initialization data, to better compare actual video payload.
+- Reports upstream cache status, Age, and Cache-Control metadata when available.
+- Sets the default `ASCAM_API_BASE` to the public Hybrid-Cloud API; Cloudflare Tunnel is no longer required for the default configuration.
+- Preserves the three explicit modes: `camId=tc-b-N`, `camId=vd-b-N`, and `merged=1`.
+
 ## 1.3.3 - Bounded Source Diagnostics
 
 - Added a sequential diagnostic endpoint for Overview, Waybill, and merged video sources.

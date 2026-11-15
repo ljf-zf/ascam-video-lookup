@@ -15,7 +15,7 @@ Responsive private web portal for searching ASCAM packing orders, viewing order 
    - `APP_PASSWORD`: private website login password
    - `SESSION_SECRET`: long random secret (32+ random characters)
    - `ASCAM_API_TOKEN`: ASCAM API bearer token (add only when ready to connect)
-5. `ASCAM_API_BASE` is a non-secret text variable managed in `wrangler.toml` under `[vars]`. Replace the placeholder with the real HTTPS Cloudflare Tunnel origin when the store computer is online. It must be the Tunnel origin only, for example `https://your-tunnel-host.example.com`; the function appends `/api/v1` automatically. Never put the API token in this file.
+5. `ASCAM_API_BASE` is a non-secret text variable managed in `wrangler.toml` under `[vars]`. The default is the public ASCAM Hybrid-Cloud endpoint `https://goldentech.ghihinh.com/api/v1`. This direct endpoint avoids requiring a Cloudflare Tunnel or an always-on store-PC connector. If Cloudflare Dashboard has an existing `ASCAM_API_BASE` variable, update it to the same Hybrid-Cloud value; Dashboard variables can override the repository default. Never put the API token in this file.
 
 Secrets are not committed to GitHub. After adding/changing Secrets in Cloudflare, ensure a new Production deployment is created so the active deployment receives the bindings.
 
@@ -89,3 +89,11 @@ The video proxy waits up to 45 seconds for ASCAM to return response headers. Thi
 ## v1.3.3 Bounded Source Diagnostics
 
 This release adds an authenticated, sequential diagnostic for a completed session. It requests at most the first 64 KiB from Overview, Waybill, or merged mode and returns response metadata plus a SHA-256 fingerprint. It never returns or stores the MP4 sample. Run each diagnostic button separately; compare the fingerprints to determine whether ASCAM serves distinct source bytes. The playback routes are deliberately unchanged in this diagnostic release.
+
+
+## v1.3.4 Hybrid-Cloud no-cache camera routing
+- Uses the public Hybrid-Cloud API by default; no Cloudflare Tunnel is needed for API calls.
+- Upstream camera diagnostic and playback fetches explicitly bypass HTTP/CDN cache using `cache: "no-store"` and no-store headers.
+- This guards against a CDN cache key that ignores query parameters and incorrectly reuses the merged response for `camId` requests.
+- Diagnostics sample a 64 KiB range at byte offset 1 MiB to compare encoded video data rather than only shared MP4 initialization bytes.
+- Includes upstream cache metadata where supplied by the origin.

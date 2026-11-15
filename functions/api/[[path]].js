@@ -50,7 +50,7 @@ async function body(req) {
 function base(env) {
   const value = (env.ASCAM_API_BASE || "").replace(/\/+$/g, "");
   if (!value || !value.startsWith("https://") || value.includes("REPLACE-WITH-TUNNEL-URL")) {
-    throw new Error("ASCAM_API_BASE chưa được cấu hình bằng địa chỉ HTTPS Tunnel thật.");
+    throw new Error("ASCAM_API_BASE chưa được cấu hình bằng địa chỉ HTTPS Hybrid-Cloud hoặc Tunnel thật.");
   }
   return value.endsWith("/api/v1") ? value : value + "/api/v1";
 }
@@ -152,6 +152,9 @@ export async function onRequest({ request, env }) {
           headers,
           signal: AbortSignal.timeout(5000),
           redirect: "follow",
+          // A cache key that ignores query strings can make different camId
+          // values return the same (often merged) MP4. Always go to origin.
+          cache: "no-store",
         });
       } catch (error) {
         const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
@@ -160,7 +163,7 @@ export async function onRequest({ request, env }) {
           sessionId,
           camId,
           result: timedOut ? "timeout" : "network_error",
-          message: timedOut ? "ASCAM không phản hồi trong 9 giây." : "Không kết nối được ASCAM qua Tunnel.",
+          message: timedOut ? "ASCAM không phản hồi trong 9 giây." : "Không kết nối được ASCAM qua Hybrid-Cloud/Tunnel.",
         }, 502);
       }
       const result = {
@@ -206,7 +209,12 @@ export async function onRequest({ request, env }) {
 
       // Safe source fingerprint: request at most the first 64 KiB and never
       // return/store video bytes. Run one mode at a time from the UI.
+      // Sample a video-data range after the MP4 header. Comparing byte 0 can
+      // produce false positives when multiple MP4s share identical init data.
+      const sampleOffset = 1024 * 1024;
       const sampleLimit = 64 * 1024;
+      const sampleEnd = sampleOffset + sampleLimit - 1;
+      const requestedRange = `bytes=${sampleOffset}-${sampleEnd}`;
       const controller = new AbortController();
       const startedAt = Date.now();
       const timeoutMs = 20000;
@@ -219,16 +227,20 @@ export async function onRequest({ request, env }) {
           : `camId=${encodeURIComponent(camId)}`;
         const headers = new Headers({
           Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
-          Range: `bytes=0-${sampleLimit - 1}`,
+          Range: requestedRange,
           Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
           "Accept-Encoding": "identity",
-          "Cache-Control": "no-cache",
+          "Cache-Control": "no-store, no-cache, max-age=0",
+          Pragma: "no-cache",
         });
         upstream = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${query}`, {
           method: "GET",
           headers,
           signal: controller.signal,
           redirect: "follow",
+          // Bypass Cloudflare/HTTP cache even if an upstream Cache Rule uses
+          // a path-only cache key and drops camId/merged query parameters.
+          cache: "no-store",
         });
 
         const contentType = upstream.headers.get("Content-Type") || "";
@@ -250,9 +262,14 @@ export async function onRequest({ request, env }) {
           acceptRanges,
           etag,
           lastModified,
-          requestedRange: `bytes=0-${sampleLimit - 1}`,
+          requestedRange,
+          sampleOffsetBytes: sampleOffset,
           sampleLimitBytes: sampleLimit,
           sampleBytes: 0,
+          cacheMode: "no-store",
+          upstreamCacheStatus: upstream.headers.get("CF-Cache-Status") || "",
+          upstreamAge: upstream.headers.get("Age") || "",
+          upstreamCacheControl: upstream.headers.get("Cache-Control") || "",
           sampleSha256: "",
           responseMs,
           rangeValid: false,
@@ -269,7 +286,7 @@ export async function onRequest({ request, env }) {
         }
 
         const match = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
-        result.rangeValid = !!match && Number(match[1]) === 0 && Number(match[2]) < sampleLimit;
+        result.rangeValid = !!match && Number(match[1]) === sampleOffset && Number(match[2]) <= sampleEnd && Number(match[2]) >= sampleOffset;
         result.expectedBytes = match ? Number(match[2]) - Number(match[1]) + 1 : null;
         if (!upstream.body) {
           result.message = "ASCAM trả 206 nhưng không có body video.";
@@ -317,8 +334,10 @@ export async function onRequest({ request, env }) {
           camId: camId || null,
           sessionId,
           result: timedOut ? "timeout" : "network_error",
-          requestedRange: `bytes=0-${sampleLimit - 1}`,
+          requestedRange,
+          sampleOffsetBytes: sampleOffset,
           sampleLimitBytes: sampleLimit,
+          cacheMode: "no-store",
           responseMs: Date.now() - startedAt,
           message: timedOut
             ? `ASCAM chưa hoàn tất mẫu 64 KB trong ${timeoutMs / 1000} giây.`
@@ -353,6 +372,8 @@ export async function onRequest({ request, env }) {
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",
+        "Cache-Control": "no-store, no-cache, max-age=0",
+        Pragma: "no-cache",
       });
       const range = request.headers.get("Range");
       if (range) headers.set("Range", range);
@@ -371,6 +392,8 @@ export async function onRequest({ request, env }) {
       try {
         response = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${videoQuery}`, {
           method: "GET", headers, signal: streamSignal, redirect: "follow",
+          // Do not allow a path-only CDN cache key to collapse camera modes.
+          cache: "no-store",
         });
       } catch (error) {
         const timedOut = connectController.signal.aborted && !request.signal?.aborted;
