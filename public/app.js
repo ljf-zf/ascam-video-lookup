@@ -267,97 +267,107 @@ async function search(query) {
     }
   } catch (error) {
     note(error.message, true);
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.innerHTML = 'Tìm kiếm <span>→</span>';
-    }
-  }
-}
+ async function playVideo(mode, button = null) {
+  if (!selectedSession) return note("Hãy chọn phiên đóng gói trước.", true);
+  if (selectedSession.status === "recording") return note("Phiên đang ghi hình. Hãy đợi ASCAM hoàn tất.", true);
+  if (!["overview", "waybill", "merged"].includes(mode)) return;
 
-function findCachedP2PLink(session, role) {
-  const sessionId = String(session?.sessionId || session?.id || "");
-  const allLinks = [
-    ...(Array.isArray(session?.shareLinks) ? session.shareLinks : []),
-    ...(Array.isArray(selectedOrder?.shareLinks) ? selectedOrder.shareLinks : []),
-  ];
-  return allLinks.find(link => {
-    const linkRole = String(link?.role || "").toLowerCase();
-    const linkSession = String(link?.sessionId || "");
-    const validTime = !link?.expiresAt || new Date(link.expiresAt).getTime() > Date.now() + 30000;
-    return link?.shareUrl && linkRole === role && (!sessionId || !linkSession || linkSession === sessionId) && validTime;
-  }) || null;
-}
-
-function updateShareButton() {
-  const button = $("createShare");
-  if (!button) return;
-  const labels = {
-    overview: "Mở P2P · Toàn cảnh (Overview)",
-    waybill: "Mở P2P · Vận đơn (Waybill)",
-    merged: "Phát video ghép MP4",
-  };
-  button.innerHTML = `${labels[selectedPlaybackMode] || labels.overview} <span>↗</span>`;
-}
-
-function resetVideo() {
-  selectedPlaybackMode = "overview";
-  $("videoPlaceholder")?.classList.remove("hidden");
-  $("videoFrameWrap")?.classList.add("hidden");
-  $("videoLinks")?.classList.add("hidden");
-  $("openShare")?.classList.add("hidden");
-  $("shareResult")?.classList.add("hidden");
-  if ($("videoPanelTitle")) $("videoPanelTitle").textContent = "Xem video đóng gói";
-
-  const player = $("videoPlayer");
-  if (player) {
-    player.pause();
-    player.removeAttribute("src");
-    player.load();
-    player.classList.add("hidden");
-  }
-  const frame = $("shareFrame");
-  if (frame) {
-    frame.src = "about:blank";
-    frame.classList.add("hidden");
-  }
-  $("downloadVideo")?.classList.add("hidden");
-  document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
+  selectedPlaybackMode = mode;
   updateShareButton();
+  const sessionId = selectedSession.sessionId || selectedSession.id;
+
+  // XỬ LÝ RIÊNG CHO P2P OVERVIEW & WAYBILL
+  if (mode === "overview" || mode === "waybill") {
+    const label = mode === "overview" ? "Toàn cảnh (Overview)" : "Vận đơn (Waybill)";
+
+    // Kiểm tra cache link P2P
+    const cached = findCachedP2PLink(selectedSession, mode);
+    if (cached) {
+      renderP2PPlayer(cached.shareUrl, mode, `Phát trực tiếp qua P2P (${mode}) cho phiên ${sessionId}.`);
+      clearNote();
+      return;
+    }
+
+    if (button) button.disabled = true;
+    note(`Đang kết nối P2P tới camera ${label}…`);
+    try {
+      const data = await api("share", {
+        method: "POST",
+        timeoutMs: 15000,
+        body: JSON.stringify({
+          orderCode: currentOrderCode(),
+          sessionId,
+          role: mode,
+          mode: "p2p",
+        }),
+      });
+
+      if (!data.shareUrl) throw new Error(`ASCAM không trả URL P2P cho camera ${label}.`);
+
+      // Nếu bấm Waybill mà ASCAM trả về trùng URL với Overview (do giới hạn API hãng), ta tự thông báo rõ
+      const isDuplicateUrl = selectedSession._lastOverviewUrl && selectedSession._lastOverviewUrl === data.shareUrl && mode === "waybill";
+      if (mode === "overview") selectedSession._lastOverviewUrl = data.shareUrl;
+
+      if (!Array.isArray(selectedSession.shareLinks)) selectedSession.shareLinks = [];
+      selectedSession.shareLinks.push({
+        shareUrl: data.shareUrl,
+        role: mode,
+        sessionId,
+      });
+
+      renderP2PPlayer(
+        data.shareUrl,
+        mode,
+        isDuplicateUrl 
+          ? `Lưu ý: ASCAM trả về cùng luồng với Toàn cảnh cho góc Waybill. Hãy thử bấm Mở tab riêng.` 
+          : `P2P Mesh · Phiên ${sessionId} · Góc ${label}.`
+      );
+      clearNote();
+    } catch (error) {
+      note(error.message || `Không thể mở camera ${label}.`, true);
+    } finally {
+      if (button) button.disabled = false;
+    }
+    return;
+  }
+
+  // LUỒNG VIDEO GHÉP MP4 (Khi bấm "Video ghép")
+  if (button) button.disabled = true;
+  try {
+    const player = $("videoPlayer");
+    const frame = $("shareFrame");
+    if (frame) { frame.src = "about:blank"; frame.classList.add("hidden"); }
+    if (player) {
+      player.classList.remove("hidden");
+      player.pause();
+      player.src = `/api/stream?sessionId=${encodeURIComponent(sessionId)}`;
+      player.load();
+    }
+    $("videoPlaceholder")?.classList.add("hidden");
+    $("videoFrameWrap")?.classList.remove("hidden");
+    $("videoLinks")?.classList.remove("hidden");
+    if ($("videoPanelTitle")) $("videoPanelTitle").textContent = "Video ghép MP4";
+    if ($("videoFootnote")) {
+      $("videoFootnote").textContent = "Đang tải video ghép MP4 từ ASCAM (Cần chờ máy cửa hàng render file theo thời lượng phiên).";
+    }
+    if ($("downloadVideo")) {
+      $("downloadVideo").href = `/api/download?sessionId=${encodeURIComponent(sessionId)}`;
+      $("downloadVideo").download = `ASCAM-${sessionId}-merged.mp4`;
+      $("downloadVideo").classList.remove("hidden");
+    }
+    $("openShare")?.classList.add("hidden");
+    document.querySelectorAll("[data-play-camera]").forEach(item => {
+      item.classList.toggle("is-playing", item.dataset.playCamera === "merged");
+    });
+    const playPromise = player?.play();
+    if (playPromise?.catch) await playPromise.catch(() => {});
+    clearNote();
+  } catch (error) {
+    note(error.message || "Không thể phát video ghép.", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
-
-function renderP2PPlayer(shareUrl, mode, sourceNote = "") {
-  const label = mode === "overview" ? "Camera Toàn cảnh (Overview)" : "Camera Vận đơn (Waybill)";
-  const player = $("videoPlayer");
-  const frame = $("shareFrame");
-
-  if (player) {
-    player.pause();
-    player.removeAttribute("src");
-    player.load();
-    player.classList.add("hidden");
-  }
-  if (frame) {
-    frame.src = shareUrl;
-    frame.classList.remove("hidden");
-  }
-
-  $("videoPlaceholder")?.classList.add("hidden");
-  $("videoFrameWrap")?.classList.remove("hidden");
-  $("videoLinks")?.classList.remove("hidden");
-  if ($("videoPanelTitle")) $("videoPanelTitle").textContent = label;
-
-  if ($("openShare")) {
-    $("openShare").href = shareUrl;
-    $("openShare").textContent = `Mở tab riêng · ${label} ↗`;
-    $("openShare").classList.remove("hidden");
-  }
-  $("downloadVideo")?.classList.add("hidden");
-
-  if ($("videoFootnote")) {
-    $("videoFootnote").textContent = sourceNote || `Đang phát trực tiếp qua P2P Mesh (${mode}) · Không chờ ghép MP4.`;
-  }
-  if ($("shareResult")) {
     $("shareResult").innerHTML = `<b>✓ ${esc(label)}</b> · <a href="${esc(shareUrl)}" target="_blank" rel="noopener">Mở toàn màn hình ở tab mới ↗</a>`;
     $("shareResult").classList.remove("hidden");
   }
