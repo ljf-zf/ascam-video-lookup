@@ -76,6 +76,25 @@ async function asc(env, path, init = {}) {
 const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(value);
 const safeSession = value => /^\d{6,30}$/.test(String(value || ""));
 
+function safeVideoUrlInfo(raw) {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const safeQuery = {};
+    for (const key of ["camId", "cameraId", "merged", "sessionId", "role", "storage"]) {
+      if (u.searchParams.has(key)) safeQuery[key] = u.searchParams.get(key);
+    }
+    return {
+      origin: u.origin,
+      pathname: u.pathname,
+      queryKeys: [...new Set([...u.searchParams.keys()])].sort(),
+      safeQuery,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function onRequest({ request, env }) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/?/, "");
@@ -207,24 +226,22 @@ export async function onRequest({ request, env }) {
         return json({ error: "Không xác định được stationId để tạo ID camera." }, 400);
       }
 
-      // Safe source fingerprint: request at most the first 64 KiB and never
-      // return/store video bytes. Run one mode at a time from the UI.
-      // Sample a video-data range after the MP4 header. Comparing byte 0 can
-      // produce false positives when multiple MP4s share identical init data.
+      // Sample after the MP4 header; never return or persist video bytes.
       const sampleOffset = 1024 * 1024;
       const sampleLimit = 64 * 1024;
       const sampleEnd = sampleOffset + sampleLimit - 1;
       const requestedRange = `bytes=${sampleOffset}-${sampleEnd}`;
+      const sourceUrl = base(env) + `/videos/${encodeURIComponent(sessionId)}/download?` +
+        (mode === "merged" ? "merged=1" : `camId=${encodeURIComponent(camId)}`);
+
       const controller = new AbortController();
       const startedAt = Date.now();
       const timeoutMs = 20000;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       let upstream;
       let reader;
+      const redirectChain = [];
       try {
-        const query = mode === "merged"
-          ? "merged=1"
-          : `camId=${encodeURIComponent(camId)}`;
         const headers = new Headers({
           Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
           Range: requestedRange,
@@ -233,15 +250,46 @@ export async function onRequest({ request, env }) {
           "Cache-Control": "no-store, no-cache, max-age=0",
           Pragma: "no-cache",
         });
-        upstream = await fetch(base(env) + `/videos/${encodeURIComponent(sessionId)}/download?${query}`, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-          redirect: "follow",
-          // Bypass Cloudflare/HTTP cache even if an upstream Cache Rule uses
-          // a path-only cache key and drops camId/merged query parameters.
-          cache: "no-store",
-        });
+
+        // Follow redirects manually so we can see whether ASCAM rewrites a
+        // camera-specific camId request into a merged video URL. Never forward
+        // the Bearer token to a different origin.
+        let currentUrl = sourceUrl;
+        const apiOrigin = new URL(base(env)).origin;
+        for (let hop = 0; hop <= 4; hop++) {
+          upstream = await fetch(currentUrl, {
+            method: "GET",
+            headers,
+            signal: controller.signal,
+            redirect: "manual",
+            cache: "no-store",
+          });
+
+          const isRedirect = [301, 302, 303, 307, 308].includes(upstream.status);
+          if (!isRedirect) break;
+
+          const location = upstream.headers.get("Location");
+          if (!location) break;
+
+          const nextUrl = new URL(location, currentUrl);
+          redirectChain.push({
+            status: upstream.status,
+            target: safeVideoUrlInfo(nextUrl.href),
+          });
+          try { await upstream.body?.cancel(); } catch {}
+
+          if (nextUrl.origin !== apiOrigin) headers.delete("Authorization");
+          currentUrl = nextUrl.href;
+
+          if (hop === 4) {
+            return json({
+              ok: false, mode, camId: camId || null, sessionId,
+              httpStatus: upstream.status, redirectChain,
+              finalUrl: safeVideoUrlInfo(currentUrl),
+              message: "ASCAM chuyển hướng quá 5 lần; đã dừng an toàn.",
+            });
+          }
+        }
 
         const contentType = upstream.headers.get("Content-Type") || "";
         const contentRange = upstream.headers.get("Content-Range") || "";
@@ -249,7 +297,9 @@ export async function onRequest({ request, env }) {
         const acceptRanges = upstream.headers.get("Accept-Ranges") || "";
         const etag = upstream.headers.get("ETag") || "";
         const lastModified = upstream.headers.get("Last-Modified") || "";
+        const contentDisposition = upstream.headers.get("Content-Disposition") || "";
         const responseMs = Date.now() - startedAt;
+        const finalUrl = safeVideoUrlInfo(currentUrl);
         const result = {
           ok: false,
           mode,
@@ -262,6 +312,11 @@ export async function onRequest({ request, env }) {
           acceptRanges,
           etag,
           lastModified,
+          contentDisposition,
+          requestedUrl: safeVideoUrlInfo(sourceUrl),
+          redirectCount: redirectChain.length,
+          redirectChain,
+          finalUrl,
           requestedRange,
           sampleOffsetBytes: sampleOffset,
           sampleLimitBytes: sampleLimit,
@@ -276,24 +331,28 @@ export async function onRequest({ request, env }) {
           message: "",
         };
 
-        // Do not read an unbounded/full response if ASCAM ignored Range.
         if (upstream.status !== 206) {
-          result.message = upstream.status === 200
-            ? "ASCAM trả HTTP 200 thay vì 206; đã hủy body ngay, không tải video toàn bộ."
-            : `ASCAM trả HTTP ${upstream.status} cho yêu cầu Range hữu hạn.`;
+          result.message = [301, 302, 303, 307, 308].includes(upstream.status)
+            ? "ASCAM trả redirect nhưng không có Location hợp lệ."
+            : upstream.status === 200
+              ? "ASCAM trả HTTP 200 thay vì 206; đã hủy body ngay, không tải video toàn bộ."
+              : `ASCAM trả HTTP ${upstream.status} cho yêu cầu Range hữu hạn.`;
           try { await upstream.body?.cancel(); } catch {}
           return json(result);
         }
 
         const match = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
-        result.rangeValid = !!match && Number(match[1]) === sampleOffset && Number(match[2]) <= sampleEnd && Number(match[2]) >= sampleOffset;
+        result.rangeValid = !!match &&
+          Number(match[1]) === sampleOffset &&
+          Number(match[2]) <= sampleEnd &&
+          Number(match[2]) >= sampleOffset;
         result.expectedBytes = match ? Number(match[2]) - Number(match[1]) + 1 : null;
         if (!upstream.body) {
           result.message = "ASCAM trả 206 nhưng không có body video.";
           return json(result);
         }
         if (!result.rangeValid) {
-          result.message = "ASCAM trả 206 nhưng Content-Range không khớp đoạn tối đa 64 KB đã yêu cầu; đã hủy body để tránh tải vượt giới hạn.";
+          result.message = "ASCAM trả 206 nhưng Content-Range không khớp đoạn tối đa 64 KB đã yêu cầu; đã hủy body.";
           try { await upstream.body.cancel(); } catch {}
           return json(result);
         }
@@ -316,11 +375,16 @@ export async function onRequest({ request, env }) {
           const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", sample.subarray(0, total)));
           result.sampleSha256 = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
         }
-        result.ok = total > 0 && result.sampleComplete && contentType.toLowerCase().includes("video/mp4");
+        result.redirectedToMerged = mode !== "merged" && redirectChain.some(hop => hop.target?.safeQuery?.merged === "1");
+        result.ok = total > 0 && result.sampleComplete &&
+          contentType.toLowerCase().includes("video/mp4") &&
+          !result.redirectedToMerged;
         result.responseMs = Date.now() - startedAt;
-        result.message = result.ok
-          ? "Đã lấy mẫu video hữu hạn; không lưu hoặc trả MP4 về trình duyệt. So sánh SHA-256 giữa ba chế độ để xác định nguồn có khác nhau không."
-          : total === 0
+        result.message = result.redirectedToMerged
+          ? "ĐÃ XÁC NHẬN LỖI ĐỊNH TUYẾN: yêu cầu camera riêng đã bị ASCAM chuyển hướng sang merged=1."
+          : result.ok
+            ? "Đã lấy mẫu sau redirect (nếu có). Đối chiếu final URL và SHA-256 để biết nguồn riêng có đúng không."
+            : total === 0
             ? "ASCAM trả 206 nhưng không gửi byte video nào."
             : !result.sampleComplete
               ? `Mẫu chưa đủ byte: nhận ${total}/${result.expectedBytes ?? "?"}. Không dùng fingerprint này để kết luận.`
@@ -334,6 +398,9 @@ export async function onRequest({ request, env }) {
           camId: camId || null,
           sessionId,
           result: timedOut ? "timeout" : "network_error",
+          requestedUrl: safeVideoUrlInfo(sourceUrl),
+          redirectCount: redirectChain.length,
+          redirectChain,
           requestedRange,
           sampleOffsetBytes: sampleOffset,
           sampleLimitBytes: sampleLimit,
@@ -414,12 +481,32 @@ export async function onRequest({ request, env }) {
         try { await response.body?.cancel(); } catch {}
         return json({ error: `ASCAM trả HTTP ${response.status} khi ${path === "stream" ? "phát" : "tải"} video.` }, response.status);
       }
+      const resolvedInfo = safeVideoUrlInfo(response.url);
+      if (camId && resolvedInfo?.safeQuery?.merged === "1") {
+        try { await response.body?.cancel(); } catch {}
+        return json({
+          error: "ASCAM đã chuyển hướng yêu cầu camera riêng sang video ghép. Website đã chặn luồng sai để không gắn nhãn Overview/Waybill cho video ghép.",
+          code: "CAMERA_REDIRECTED_TO_MERGED",
+          requestedCamId: camId,
+          resolvedUrl: resolvedInfo,
+          sessionId,
+        }, 502);
+      }
       const outputHeaders = new Headers();
       for (const key of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
         if (response.headers.has(key)) outputHeaders.set(key, response.headers.get(key));
       }
       outputHeaders.set("Cache-Control", "private, no-store, no-transform");
       outputHeaders.set("X-Content-Type-Options", "nosniff");
+      outputHeaders.set("X-AVL-Requested-Source", camId || "merged=1");
+      outputHeaders.set("X-AVL-Upstream-Redirected", response.redirected ? "1" : "0");
+      if (resolvedInfo) {
+        outputHeaders.set("X-AVL-Upstream-Origin", resolvedInfo.origin);
+        outputHeaders.set("X-AVL-Upstream-Path", resolvedInfo.pathname);
+        outputHeaders.set("X-AVL-Upstream-Query-Keys", resolvedInfo.queryKeys.join(","));
+        if (resolvedInfo.safeQuery?.camId) outputHeaders.set("X-AVL-Upstream-CamId", resolvedInfo.safeQuery.camId);
+        if (resolvedInfo.safeQuery?.merged) outputHeaders.set("X-AVL-Upstream-Merged", resolvedInfo.safeQuery.merged);
+      }
       const suffix = camId ? `-${camId}` : "-merged";
       outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}${suffix}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });

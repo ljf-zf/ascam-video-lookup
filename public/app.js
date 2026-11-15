@@ -199,7 +199,7 @@ async function playVideo(mode, button = null) {
     $("videoPanelTitle").textContent = label;
     $("videoFootnote").textContent = mode === "merged"
       ? "Đang phát video ghép từ ASCAM."
-      : `Đang phát camera gốc ${cameraIdForMode(mode)} · HTTP Range · Token được giữ ở backend.`;
+      : `Đang yêu cầu camera ${cameraIdForMode(mode)} · HTTP Range · Token được giữ ở backend.`;
     $("downloadVideo").href = playbackUrl(mode, true);
     $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
     document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
@@ -266,9 +266,17 @@ function renderCameraProbeResult(result) {
     Number.isFinite(result.sampleBytes) ? `Đã đọc: ${result.sampleBytes}/${result.expectedBytes ?? "?"} byte` : "",
     result.sampleSha256 ? `SHA-256: ${result.sampleSha256}` : "",
     result.etag ? `ETag: ${result.etag}` : "",
+    Number.isFinite(result.redirectCount) ? `Redirect: ${result.redirectCount}` : "",
+    result.finalUrl?.origin && result.finalUrl?.pathname ? `Đích cuối: ${result.finalUrl.origin}${result.finalUrl.pathname}` : "",
+    result.finalUrl?.safeQuery?.camId ? `camId cuối: ${result.finalUrl.safeQuery.camId}` : "",
+    result.finalUrl?.safeQuery?.merged ? `merged cuối: ${result.finalUrl.safeQuery.merged}` : "",
+    result.redirectedToMerged ? "BỊ CHUYỂN SANG VIDEO GHÉP" : "",
     Number.isFinite(result.responseMs) ? `${result.responseMs} ms` : "",
   ].filter(Boolean).join(" · ");
-  return `<div class="camera-probe-row ${ok ? "probe-good" : "probe-bad"}"><div><b>${esc(result.camId || (result.mode === "merged" ? "merged=1" : "Nguồn video"))}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${details ? `<small>${esc(details)}</small>` : ""}</div>`;
+  const redirects = Array.isArray(result.redirectChain) && result.redirectChain.length
+    ? result.redirectChain.map((hop, index) => `#${index + 1} HTTP ${hop.status} → ${hop.target?.origin || ""}${hop.target?.pathname || ""}${hop.target?.safeQuery?.camId ? `?camId=${hop.target.safeQuery.camId}` : hop.target?.safeQuery?.merged ? `?merged=${hop.target.safeQuery.merged}` : ""}`).join(" | ")
+    : "";
+  return `<div class="camera-probe-row ${ok ? "probe-good" : "probe-bad"}"><div><b>${esc(result.camId || (result.mode === "merged" ? "merged=1" : "Nguồn video"))}</b><span>${esc(status)}</span></div><p>${esc(result.message || "Không có thông tin.")}</p>${redirects ? `<small>${esc(redirects)}</small>` : ""}${details ? `<small>${esc(details)}</small>` : ""}</div>`;
 }
 let probeBusy = false;
 async function diagnoseVideoSource(mode, buttonId) {
@@ -285,7 +293,7 @@ async function diagnoseVideoSource(mode, buttonId) {
   const modeLabel = mode === "overview" ? "Overview" : mode === "waybill" ? "Waybill" : "Video ghép";
   const camId = mode === "overview" ? `tc-${stationId}` : mode === "waybill" ? `vd-${stationId}` : "";
   probeBusy = true;
-  document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged").forEach(item => { item.disabled = true; });
+  document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged,#probeAll").forEach(item => { item.disabled = true; });
   const originalText = button.textContent;
   button.textContent = "Đang lấy mẫu…";
   output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId || "merged=1")}</b><p>Đang yêu cầu tối đa 64 KB từ nguồn ${esc(modeLabel)}…</p></div>`);
@@ -303,9 +311,78 @@ async function diagnoseVideoSource(mode, buttonId) {
     else output.insertAdjacentHTML("afterbegin", failed);
   } finally {
     button.textContent = originalText;
-    document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged").forEach(item => { item.disabled = false; });
+    document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged,#probeAll").forEach(item => { item.disabled = false; });
     probeBusy = false;
   }
+}
+
+
+async function diagnoseAllVideoSources(button = null) {
+  if (probeBusy) return note("Đang có phép chẩn đoán khác chạy.", true);
+  const sessionId = selectedSession?.sessionId || selectedSession?.id;
+  if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
+  if (selectedSession?.status === "recording") return note("Không kiểm tra video khi phiên vẫn đang ghi hình.", true);
+
+  const stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
+  if (!/^b-\d{1,3}$/.test(stationId)) return note("Không tìm thấy stationId của phiên để xác định camera.", true);
+
+  const output = $("cameraProbeResults");
+  const modes = [
+    { mode: "overview", title: "Overview", camId: `tc-${stationId}` },
+    { mode: "waybill", title: "Waybill", camId: `vd-${stationId}` },
+    { mode: "merged", title: "Video ghép", camId: "merged=1" },
+  ];
+  const buttons = [...document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged,#probeAll")];
+  probeBusy = true;
+  buttons.forEach(item => { item.disabled = true; });
+  if (button) button.textContent = "Đang đối chiếu 1/3…";
+  output.innerHTML = "";
+  const results = [];
+
+  try {
+    for (let i = 0; i < modes.length; i++) {
+      const item = modes[i];
+      if (button) button.textContent = `Đang đối chiếu ${i + 1}/3…`;
+      const pendingId = `probe-pending-${i}`;
+      output.insertAdjacentHTML("beforeend", `<div id="${pendingId}">${renderPendingProbe(item.camId, item.title)}</div>`);
+      try {
+        const params = new URLSearchParams({ sessionId: String(sessionId), mode: item.mode, stationId });
+        const result = await api(`camera-diagnose?${params.toString()}`, { timeoutMs: 25000 });
+        results.push({ ...result, requestedMode: item.mode });
+        const pending = $(pendingId);
+        if (pending) pending.outerHTML = renderCameraProbeResult(result);
+      } catch (error) {
+        const failed = `<div class="camera-probe-row probe-bad"><div><b>${esc(item.camId)}</b><span>Lỗi</span></div><p>${esc(error?.message || "Không thể chẩn đoán nguồn video.")}</p></div>`;
+        const pending = $(pendingId);
+        if (pending) pending.outerHTML = failed;
+      }
+    }
+
+    const complete = results.filter(item => item.sampleComplete && item.sampleSha256);
+    const cameraRedirectedToMerged = results.some(item =>
+      ["overview", "waybill"].includes(item.mode) &&
+      (item.redirectedToMerged || item.redirectChain?.some(hop => hop.target?.safeQuery?.merged === "1"))
+    );
+    let comparison = "";
+    if (cameraRedirectedToMerged) {
+      comparison = "KẾT LUẬN: Có request camera riêng bị redirect sang merged=1. Đây là bằng chứng đường API đang đổi yêu cầu camera thành video ghép.";
+    } else if (complete.length === 3) {
+      const hashes = new Set(complete.map(item => item.sampleSha256));
+      comparison = hashes.size === 1
+        ? "KẾT LUẬN: Cả ba mẫu tại byte 1 MB giống nhau. Nếu không có redirect, endpoint đang trả cùng nội dung cho ba tham số; cần xác nhận cách ASCAM định nghĩa camId."
+        : "KẾT LUẬN: Ba mẫu tại byte 1 MB khác nhau. API có dữ liệu khác nhau; nếu player vẫn hiện hai góc, cần kiểm tra URL/Range thực tế của thẻ video.";
+    } else if (results.length) {
+      comparison = "Chưa đủ ba mẫu hợp lệ để kết luận. Xem HTTP, redirect và Content-Range ở từng kết quả.";
+    }
+    if (comparison) output.insertAdjacentHTML("beforeend", `<div class="camera-probe-row ${comparison.startsWith("KẾT LUẬN: Có") ? "probe-warn" : "probe-good"}"><b>Đối chiếu tự động</b><p>${esc(comparison)}</p></div>`);
+  } finally {
+    buttons.forEach(item => { item.disabled = false; });
+    if (button) button.textContent = "Đối chiếu cả 3 nguồn";
+    probeBusy = false;
+  }
+}
+function renderPendingProbe(camId, title) {
+  return `<div class="camera-probe-row probe-pending"><div><b>${esc(camId)}</b><span>Đang kiểm tra</span></div><p>Đang lấy mẫu tối đa 64 KB cho ${esc(title)}…</p></div>`;
 }
 
 function updateSessionHint() {
@@ -422,6 +499,7 @@ $("videoPlayer").addEventListener("error", () => {
 $("probeOverview").addEventListener("click", () => diagnoseVideoSource("overview", "probeOverview"));
 $("probeWaybill").addEventListener("click", () => diagnoseVideoSource("waybill", "probeWaybill"));
 $("probeMerged").addEventListener("click", () => diagnoseVideoSource("merged", "probeMerged"));
+$("probeAll").addEventListener("click", event => diagnoseAllVideoSources(event.currentTarget));
 document.querySelectorAll("[data-play-camera]").forEach(button => button.addEventListener("click", () => playVideo(button.dataset.playCamera, button)));
 $("clearHistory").addEventListener("click", () => { localStorage.removeItem(HISTORY); renderHistory(); });
 

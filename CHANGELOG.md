@@ -1,3 +1,10 @@
+## 1.3.5 - Origin Route Trace
+- Added sequential one-click diagnostics for Overview, Waybill, and merged video.
+- Captures manual upstream redirects and sanitized final URL details without exposing tokens.
+- Shows whether a camera-specific request is redirected to `merged=1`.
+- Blocks playback when a camera-specific request resolves to an explicitly merged URL.
+- Keeps sample reads bounded to 64 KiB at a non-zero MP4 offset; no whole-video download during diagnostics.
+
 ## 1.3.4 - Hybrid-Cloud No-Cache Camera Routing
 
 - Sets `cache: "no-store"` on upstream camera diagnostics and video stream/download requests.

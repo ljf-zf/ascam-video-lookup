@@ -1,3 +1,17 @@
+# ASCAM Video Lookup v1.3.5
+
+## v1.3.5 Origin Route Trace
+This release focuses on proving where ASCAM sends camera-specific video requests before changing playback behavior further.
+
+- Runs three source diagnostics sequentially with one button.
+- Requests one bounded 64 KiB range at byte offset 1 MiB.
+- Records HTTP status, Content-Range, cache headers, redirect chain and final upstream route.
+- Sanitizes redirect/final URL metadata: token and signature query values are never returned to the browser.
+- If the actual playback request explicitly resolves to `merged=1` despite a requested `camId`, the backend blocks it and returns `CAMERA_REDIRECTED_TO_MERGED`.
+- Uses the Hybrid-Cloud base URL by default; no store-PC Tunnel is required for API calls.
+
+The diagnostics do not prove two full files differ from a single sample alone. The redirect trace is the key evidence: if `camId=tc-b-N` or `camId=vd-b-N` is redirected to a `merged=1` destination, the routing problem is upstream. If no redirect occurs but the 1 MiB samples remain identical, ASCAM may be ignoring `camId` or mapping these IDs to one asset.
+
 # ASCAM Video Lookup v1.1.0 — Focus Cinema
 
 Responsive private web portal for searching ASCAM packing orders, viewing order sessions, creating ASC-Cloud share links, and streaming/downloading merged MP4 through an authenticated Cloudflare Pages Function.
