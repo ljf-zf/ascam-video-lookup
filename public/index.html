@@ -42,18 +42,7 @@
               <div id="orderMeta" class="meta-grid"></div>
               <div class="detail-toolbar"><div><div class="eyebrow">RECORDING SESSIONS</div><h3>Video ghép đóng gói</h3><span id="sessionCount" class="subtle-count"></span></div><button id="toggleBookmark" class="button button-quiet bookmark-button" type="button">☆ Đánh dấu kiểm tra</button></div>
               <div id="sessions" class="session-list"></div><div id="sessionNotice" class="inline-hint">Chọn phiên đã hoàn tất để xem video.</div>
-              <section class="camera-diagnostic" aria-labelledby="cameraDiagnosticTitle">
-                <div class="camera-diagnostic-head"><div><div class="eyebrow">SOURCE FINGERPRINT</div><h3 id="cameraDiagnosticTitle">Chẩn đoán nguồn video</h3></div><span class="diagnostic-chip">Tối đa 64 KB</span></div>
-                <p>Đối chiếu 3 nguồn ở byte 1 MB, tối đa 64 KB mỗi nguồn. Ghi lại redirect và URL đích cuối (đã ẩn token) để xác định ASCAM có đổi camera riêng thành video ghép hay không.</p>
-                <div class="camera-probe-actions">
-                  <button id="probeOverview" class="button button-secondary" type="button">Lấy mẫu Overview</button>
-                  <button id="probeWaybill" class="button button-secondary" type="button">Lấy mẫu Waybill</button>
-                  <button id="probeMerged" class="button button-quiet" type="button">Lấy mẫu Video ghép</button>
-                  <button id="probeAll" class="button button-primary probe-all-button" type="button">Đối chiếu cả 3 nguồn</button>
-                </div>
-                <div id="cameraProbeResults" class="camera-probe-results" aria-live="polite">Chưa chạy kiểm tra.</div>
-              </section>
-              <p class="inline-hint share-role-hint">ASCAM hỗ trợ role chia sẻ riêng: main (góc chính/Overview), sub (góc phụ/Waybill), merged (ghép). Chọn chế độ phát phía trên rồi tạo link tương ứng.</p>
+              <p class="inline-hint share-role-hint">Overview và Waybill dùng link P2P theo role ASCAM để xem nhanh. Không gọi API tải video camId vì endpoint này có thể làm treo ứng dụng ASCAM.</p>
               <button id="createShare" class="button button-primary button-wide" type="button">Tạo video ghép ASC-Cloud <span>↗</span></button><div id="shareResult" class="share-result hidden"></div>
             </div>
             <aside class="video-panel"><div class="video-panel-head"><div><div class="eyebrow">QUICK PLAYBACK</div><h3 id="videoPanelTitle">Xem video đóng gói</h3></div><span class="live-indicator"><i></i> PLAYER</span></div>
@@ -63,7 +52,7 @@
                 <button class="button button-quiet" type="button" data-play-camera="merged">Video ghép</button>
               </div>
               <div id="videoPlaceholder" class="video-placeholder"><div class="play-orb">▶</div><b>Chưa phát video</b><span>Chọn Overview, Waybill hoặc video ghép. Video gốc không cần tạo link ASC-Cloud.</span></div>
-              <div id="videoFrameWrap" class="video-frame hidden"><video id="videoPlayer" controls playsinline preload="metadata"></video></div>
+              <div id="videoFrameWrap" class="video-frame hidden"><video id="videoPlayer" controls playsinline preload="metadata"></video><iframe id="shareFrame" class="share-frame hidden" title="Video ASCAM P2P" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer"></iframe></div>
               <div id="videoLinks" class="video-actions hidden"><a id="openShare" class="button button-secondary" target="_blank" rel="noopener">Mở ASC-Cloud ↗</a><a id="downloadVideo" class="button button-quiet" download>Tải video MP4 ↓</a></div><p id="videoFootnote" class="video-footnote">Phát trực tiếp qua máy chủ bảo mật, hỗ trợ tua bằng HTTP Range. Bearer Token không được gửi xuống trình duyệt.</p>
             </aside>
           </section>
