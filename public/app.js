@@ -36,8 +36,8 @@ function clearNote() {
 function setAuthStatus(connected) {
   const element = $("authStatus");
   if (!element) return;
-  element.innerHTML = `<i></i>${connected ? "Đã đăng nhập" : "Chưa đăng nhập"}`;
-  element.classList.toggle("is-online", connected);
+  element.textContent = connected ? "Đã đăng nhập" : "Chưa đăng nhập";
+  element.closest(".connection-card")?.classList.toggle("is-online", connected);
 }
 
 function setAscamStatus(state, message) {
@@ -49,24 +49,22 @@ function setAscamStatus(state, message) {
     checking: "Đang kiểm tra ASCAM",
     unknown: "ASCAM chưa kiểm tra"
   };
+  const text = message || labels[state] || labels.unknown;
   if (element) {
-    element.innerHTML = `<i></i><span>${esc(message || labels[state] || labels.unknown)}</span>`;
-    element.classList.remove("is-online", "is-offline", "is-error", "status-unknown");
-    element.classList.add(state === "connected" ? "is-online" : state === "unavailable" ? "is-offline" : state === "not_configured" ? "is-error" : "status-unknown");
-    element.title = message || labels[state] || "";
+    element.textContent = text;
+    element.title = text;
   }
   const top = $("ascamStatusTop");
-  if (top && element) {
-    top.innerHTML = element.innerHTML;
-    top.className = element.className;
-    top.title = element.title;
+  if (top) {
+    top.innerHTML = `<i></i><span>${esc(text)}</span>`;
+    top.className = "status-chip " + (state === "connected" ? "is-online" : state === "unavailable" ? "is-offline" : state === "not_configured" ? "is-error" : "status-unknown");
+    top.title = text;
   }
 }
 
 function loginView() {
   $("loginView")?.classList.remove("hidden");
   $("appView")?.classList.add("hidden");
-  $("logout")?.classList.add("hidden");
   setAuthStatus(false);
   setAscamStatus("unknown");
 }
@@ -74,7 +72,6 @@ function loginView() {
 function appView() {
   $("loginView")?.classList.add("hidden");
   $("appView")?.classList.remove("hidden");
-  $("logout")?.classList.remove("hidden");
   setAuthStatus(true);
 }
 
@@ -109,13 +106,21 @@ async function refreshAscamStatus() {
   }
 }
 
+function closeSidebar() {
+  $("sidebar")?.classList.remove("open");
+  $("sidebarScrim")?.classList.remove("visible");
+}
+
 function showView(viewName) {
-  document.querySelectorAll("[data-view]").forEach(el => {
-    el.classList.toggle("hidden", el.dataset.view !== viewName);
+  const titles = { home: "Tổng quan", history: "Lịch sử tìm kiếm", bookmarks: "Đơn cần kiểm tra" };
+  ["home", "history", "bookmarks"].forEach(name => {
+    $(`${name}View`)?.classList.toggle("hidden", name !== viewName);
   });
-  document.querySelectorAll("[data-nav]").forEach(btn => {
-    btn.classList.toggle("is-active", btn.dataset.nav === viewName);
+  document.querySelectorAll(".nav-item[data-view]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.view === viewName);
   });
+  if ($("pageTitle")) $("pageTitle").textContent = titles[viewName] || "Tổng quan";
+  closeSidebar();
 }
 
 function historyItems() {
@@ -128,7 +133,7 @@ function historyItems() {
 function saveHistory(code) {
   if (!code) return;
   try {
-    localStorage.setItem(HISTORY, JSON.stringify([{ code, at: new Date().toISOString() }, ...historyItems().filter(item => item.code !== code)].slice(0, 12)));
+    localStorage.setItem(HISTORY, JSON.stringify([{ code, at: new Date().toISOString() }, ...historyItems().filter(item => item.code !== code)].slice(0, 20)));
   } catch {}
   renderHistory();
 }
@@ -193,6 +198,8 @@ function renderBookmarks() {
   const items = bookmarkItems();
   const badge = $("bookmarkBadge");
   if (badge) badge.textContent = items.length;
+  const count = $("bookmarkCount");
+  if (count) count.textContent = `${items.length} đơn`;
   const list = $("bookmarkList");
   if (!list) return;
   list.innerHTML = items.length
@@ -237,7 +244,7 @@ async function search(query) {
   }
   $("detailSection")?.classList.add("hidden");
   try {
-    const data = await api("search?q=" + encodeURIComponent(normalized), { timeoutMs: 20000 });
+    const data = await api("search?q=" + encodeURIComponent(normalized), { timeoutMs: 25000 });
     const items = itemsOf(data);
     $("resultsSection")?.classList.remove("hidden");
     if ($("resultCount")) $("resultCount").textContent = `${items.length} kết quả`;
@@ -255,7 +262,6 @@ async function search(query) {
     if (!items.length) {
       note(`Không tìm thấy đơn khớp "${normalized}" (đã quét ${data.scannedRecords || 0}/${data.totalRecords || 0} bản ghi).`);
     } else if (items.length === 1) {
-      // Nếu chỉ khớp duy nhất 1 đơn, mở thẳng chi tiết đơn đó cho nhanh
       const only = items[0];
       loadOrder(only.orderCode || only.OrderCode || only.rawCode || "");
     }
@@ -369,11 +375,9 @@ async function playVideo(mode, button = null) {
   updateShareButton();
   const sessionId = selectedSession.sessionId || selectedSession.id;
 
-  // 1. LUỒNG XEM NHANH P2P: OVERVIEW HOẶC WAYBILL
   if (mode === "overview" || mode === "waybill") {
     const label = mode === "overview" ? "Toàn cảnh (Overview)" : "Vận đơn (Waybill)";
 
-    // Kiểm tra xem đơn hàng đã có sẵn link P2P còn hạn cho đúng camera này chưa -> mở 0ms!
     const cached = findCachedP2PLink(selectedSession, mode);
     if (cached) {
       renderP2PPlayer(
@@ -401,7 +405,6 @@ async function playVideo(mode, button = null) {
 
       if (!data.shareUrl) throw new Error(`ASCAM không trả URL P2P cho camera ${label}.`);
 
-      // Lưu cache vào selectedSession để bấm chuyển qua lại giữa Overview <-> Waybill không phải gọi lại API
       if (!Array.isArray(selectedSession.shareLinks)) selectedSession.shareLinks = [];
       selectedSession.shareLinks.push({
         shareUrl: data.shareUrl,
@@ -429,7 +432,6 @@ async function playVideo(mode, button = null) {
     return;
   }
 
-  // 2. LUỒNG DỰ PHÒNG: VIDEO GHÉP MP4
   if (button) button.disabled = true;
   try {
     const player = $("videoPlayer");
@@ -542,33 +544,37 @@ async function loadOrder(code) {
   }
 }
 
-// KHỞI TẠO SỰ KIỆN TRANG
+// KHỞI TẠO SỰ KIỆN KHỚP 100% VỚI PUBLIC/INDEX.HTML
 document.addEventListener("DOMContentLoaded", async () => {
   renderHistory();
   renderBookmarks();
 
   $("loginForm")?.addEventListener("submit", async e => {
     e.preventDefault();
-    clearNote();
-    const password = $("passwordInput")?.value || "";
+    const errEl = $("loginError");
+    if (errEl) errEl.textContent = "";
+    const password = $("password")?.value || "";
     try {
       await api("login", { method: "POST", body: JSON.stringify({ password }) });
-      if ($("passwordInput")) $("passwordInput").value = "";
+      if ($("password")) $("password").value = "";
       appView();
       refreshAscamStatus();
     } catch (error) {
-      note(error.message, true);
+      if (errEl) errEl.textContent = error.message;
+      else note(error.message, true);
     }
   });
 
-  $("logout")?.addEventListener("click", async () => {
+  const handleLogout = async () => {
     await api("logout", { method: "POST" }).catch(() => {});
     loginView();
-  });
+  };
+  $("logout")?.addEventListener("click", handleLogout);
+  $("logoutDesktop")?.addEventListener("click", handleLogout);
 
   $("searchForm")?.addEventListener("submit", e => {
     e.preventDefault();
-    search($("searchInput")?.value || "");
+    search($("query")?.value || "");
   });
 
   document.querySelectorAll("[data-play-camera]").forEach(btn => {
@@ -577,11 +583,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   $("createShare")?.addEventListener("click", () => playVideo(selectedPlaybackMode, $("createShare")));
   $("toggleBookmark")?.addEventListener("click", toggleBookmark);
-  $("refreshStatus")?.addEventListener("click", refreshAscamStatus);
 
-  document.querySelectorAll("[data-nav]").forEach(btn => {
-    btn.addEventListener("click", () => showView(btn.dataset.nav));
+  $("clearHistory")?.addEventListener("click", () => {
+    try { localStorage.removeItem(HISTORY); } catch {}
+    renderHistory();
   });
+
+  document.querySelectorAll(".nav-item[data-view]").forEach(btn => {
+    btn.addEventListener("click", () => showView(btn.dataset.view));
+  });
+
+  document.querySelectorAll("[data-goto]").forEach(btn => {
+    btn.addEventListener("click", () => showView(btn.dataset.goto));
+  });
+
+  $("menuToggle")?.addEventListener("click", () => {
+    $("sidebar")?.classList.toggle("open");
+    $("sidebarScrim")?.classList.toggle("visible");
+  });
+  $("sidebarScrim")?.addEventListener("click", closeSidebar);
 
   try {
     await api("me");
