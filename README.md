@@ -1,3 +1,6 @@
+## Version 1.3.6 – ASCAM share roles
+The ASCAM API documentation's order-share endpoint supports `role: "main"`, `"sub"`, and `"merged"`. The app maps Overview → main, Waybill → sub, and Video ghép → merged when creating ASC-Cloud share links. This is separate from the direct `camId` MP4 stream path. The share endpoint is documented at order scope and does not document a `sessionId` argument; orders with multiple sessions may therefore not be limited to the selected session.
+
 # ASCAM Video Lookup v1.3.5
 
 ## v1.3.5 Origin Route Trace

@@ -1,3 +1,9 @@
+## 1.3.6 – ASCAM Share Roles
+- Add documented ASCAM share roles: `main`, `sub`, and `merged`.
+- Map Overview → `main`, Waybill → `sub`, Video ghép → `merged` for share-link creation.
+- Keep direct camera playback unchanged; the share-role path is a separate documented fallback/verification route.
+- Disclose that share creation is order-level; no `sessionId` parameter is documented.
+
 ## 1.3.5 - Origin Route Trace
 - Added sequential one-click diagnostics for Overview, Waybill, and merged video.
 - Captures manual upstream redirects and sanitized final URL details without exposing tokens.

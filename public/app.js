@@ -5,6 +5,8 @@ let selectedOrder = null;
 let selectedSession = null;
 let selectedSessions = [];
 let lastShare = null;
+// The ASCAM share API exposes documented roles: main (primary), sub (secondary), merged.
+let selectedPlaybackMode = "merged";
 
 function esc(value = "") {
   return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -152,8 +154,19 @@ async function search(query) {
     button.innerHTML = 'Tìm kiếm <span>→</span>';
   }
 }
+function shareRoleForPlayback(mode = selectedPlaybackMode) {
+  // ASCAM docs: main = primary angle (configured first: Overview); sub = secondary angle (Waybill).
+  return mode === "overview" ? "main" : mode === "waybill" ? "sub" : "merged";
+}
+function updateShareButton() {
+  const button = $("createShare");
+  if (!button) return;
+  const labels = { overview: "Toàn cảnh · main", waybill: "Vận đơn · sub", merged: "Video ghép · merged" };
+  button.innerHTML = `Tạo link ASC-Cloud · ${labels[selectedPlaybackMode] || labels.merged} <span>↗</span>`;
+}
 function resetVideo() {
   lastShare = null;
+  selectedPlaybackMode = "merged";
   $("videoPlaceholder").classList.remove("hidden");
   $("videoFrameWrap").classList.add("hidden");
   $("videoLinks").classList.add("hidden");
@@ -165,6 +178,7 @@ function resetVideo() {
   player.removeAttribute("src");
   player.load();
   document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
+  updateShareButton();
 }
 function cameraIdForMode(mode) {
   if (mode === "merged") return "";
@@ -188,6 +202,8 @@ async function playVideo(mode, button = null) {
   if (!["overview", "waybill", "merged"].includes(mode)) return;
   const player = $("videoPlayer");
   const label = mode === "overview" ? "Camera Overview" : mode === "waybill" ? "Camera Waybill" : "Video ghép";
+  selectedPlaybackMode = mode;
+  updateShareButton();
   try {
     const src = playbackUrl(mode);
     player.pause();
@@ -411,23 +427,27 @@ async function share() {
   if (selectedSession?.status === "recording") return note("Phiên đang ghi hình. Hãy đợi ASCAM hoàn tất.", true);
   const button = $("createShare");
   button.disabled = true;
-  button.textContent = "Đang tạo link…";
+  const requestedRole = shareRoleForPlayback();
+  const roleLabel = requestedRole === "main" ? "Toàn cảnh (góc chính)" : requestedRole === "sub" ? "Vận đơn (góc phụ)" : "Video ghép";
+  button.textContent = `Đang tạo link ${roleLabel}…`;
   try {
-    const code = selectedOrder.orderCode || selectedOrder.OrderCode || selectedOrder.code || $("detailCode").textContent;
-    const data = await api("share", { method: "POST", body: JSON.stringify({ orderCode: code }) });
+    const code = currentOrderCode();
+    const data = await api("share", { method: "POST", body: JSON.stringify({ orderCode: code, role: requestedRole }) });
     const shareUrl = data.shareUrl || data.shareURL;
     if (!shareUrl) throw new Error("ASCAM không trả shareUrl.");
     lastShare = data;
-    $("shareResult").innerHTML = `<b>✓ Đã tạo link ASC-Cloud cho đơn ${esc(code)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">${esc(shareUrl)}</a><small>Hết hạn: ${date(data.expiresAt)}. Link được tạo theo đơn hàng, không khẳng định là link riêng của phiên đang chọn.</small>`;
+    const expiry = data.expiresAt ? `Hết hạn: ${date(data.expiresAt)}.` : "";
+    const scopeNote = "API chia sẻ hoạt động ở cấp đơn hàng, không có tham số sessionId trong tài liệu; đơn có nhiều phiên có thể không giới hạn vào phiên đang chọn.";
+    $("shareResult").innerHTML = `<b>✓ Đã tạo link ASC-Cloud · ${esc(roleLabel)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">${esc(shareUrl)}</a><small>${esc(expiry)} ${esc(scopeNote)}</small>`;
     $("shareResult").classList.remove("hidden");
     $("openShare").href = shareUrl;
+    $("openShare").textContent = `Mở ASC-Cloud · ${roleLabel} ↗`;
     $("openShare").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
-    $("openShare").classList.remove("hidden");
-    $("videoFootnote").textContent = "Link ASC-Cloud đã tạo riêng ở cấp đơn hàng. Overview và Waybill phát camera gốc theo ID camera; Video ghép là luồng riêng.";
-    note("Đã tạo link ASC-Cloud. Video gốc có thể phát riêng mà không cần tạo link chia sẻ.");
+    $("videoFootnote").textContent = `Link ASC-Cloud được tạo với role=${requestedRole}. Đây là nhánh chia sẻ riêng theo hợp đồng API ASCAM; nó không sử dụng camId của luồng tải MP4.`;
+    note(`Đã yêu cầu ASCAM tạo link ${roleLabel}. Mở link để xác nhận góc video thực tế.`);
   } catch (error) { note(error.message, true); }
-  finally { button.innerHTML = 'Tạo link ASC-Cloud <span>↗</span>'; button.disabled = selectedSession?.status === "recording"; }
+  finally { updateShareButton(); button.disabled = selectedSession?.status === "recording"; }
 }
 
 

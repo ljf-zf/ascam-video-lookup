@@ -420,16 +420,29 @@ export async function onRequest({ request, env }) {
       const input = await body(request);
       const code = input.orderCode || "";
       if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
-      // ASCAM's verified share request is order-level. Do not claim session-specific
-      // sharing until the API contract explicitly supports a sessionId parameter.
+
+      // ASCAM API documentation section 4.4 supports role=merged|main|sub.
+      // main is the primary camera angle; sub is the secondary camera angle.
+      // This share endpoint is order-level; the documented request has no sessionId.
+      const role = String(input.role || "merged").toLowerCase();
+      if (!["merged", "main", "sub"].includes(role)) {
+        return json({ error: "Role chia sẻ không hợp lệ. Chọn merged, main hoặc sub." }, 400);
+      }
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
-        body: JSON.stringify({ storage: "cloud", role: "merged", lang: "vi", theme: "dark" }),
-        timeoutMs: 15000,
+        body: JSON.stringify({ storage: "cloud", role, lang: "vi", theme: "dark" }),
+        timeoutMs: 20000,
       });
-      if (result.error) return json({ error: result.error }, result.status);
-      if (!result.data.shareUrl && !result.data.shareURL) return json({ error: "ASCAM không trả shareUrl." }, 502);
-      return json({ ...result.data, shareScope: "order", note: "Link được tạo theo đơn hàng bằng API ASCAM đã xác minh; chưa xác nhận API hỗ trợ chọn session riêng." });
+      if (result.error) return json({ error: result.error, requestedRole: role }, result.status);
+      if (!result.data.shareUrl && !result.data.shareURL) return json({ error: "ASCAM không trả shareUrl.", requestedRole: role }, 502);
+      const roleLabel = role === "main" ? "góc chính" : role === "sub" ? "góc phụ" : "video ghép";
+      return json({
+        ...result.data,
+        shareScope: "order",
+        requestedRole: role,
+        roleLabel,
+        note: "Link được tạo theo đơn hàng. Tài liệu API share không công bố tham số sessionId; với đơn có nhiều phiên, không thể đảm bảo link chỉ trỏ đến phiên đang chọn."
+      });
     }
     if ((path === "download" || path === "stream") && method === "GET") {
       const sessionId = url.searchParams.get("sessionId") || "";

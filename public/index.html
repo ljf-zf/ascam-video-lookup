@@ -24,7 +24,7 @@
           <button class="nav-item" data-view="history"><span class="nav-icon">◷</span><span>Lịch sử tìm kiếm</span><span id="historyBadge" class="nav-badge">0</span></button>
           <button class="nav-item" data-view="bookmarks"><span class="nav-icon">☆</span><span>Đơn cần kiểm tra</span><span id="bookmarkBadge" class="nav-badge">0</span></button>
         </nav>
-        <div class="sidebar-bottom"><div class="connection-card"><span class="connection-dot"></span><div><b id="authStatus">Chưa đăng nhập</b><small id="ascamStatus">ASCAM chưa kiểm tra</small></div></div><button id="logoutDesktop" class="nav-logout">↪ Đăng xuất</button><div class="side-version">ASCAM VIDEO LOOKUP <b>V1.3.5 · ORIGIN TRACE</b></div></div>
+        <div class="sidebar-bottom"><div class="connection-card"><span class="connection-dot"></span><div><b id="authStatus">Chưa đăng nhập</b><small id="ascamStatus">ASCAM chưa kiểm tra</small></div></div><button id="logoutDesktop" class="nav-logout">↪ Đăng xuất</button><div class="side-version">ASCAM VIDEO LOOKUP <b>V1.3.6 · SHARE ROLES</b></div></div>
       </aside>
 
       <div class="workspace-main">
@@ -53,7 +53,8 @@
                 </div>
                 <div id="cameraProbeResults" class="camera-probe-results" aria-live="polite">Chưa chạy kiểm tra.</div>
               </section>
-              <button id="createShare" class="button button-primary button-wide" type="button">Tạo link ASC-Cloud <span>↗</span></button><div id="shareResult" class="share-result hidden"></div>
+              <p class="inline-hint share-role-hint">ASCAM hỗ trợ role chia sẻ riêng: main (góc chính/Overview), sub (góc phụ/Waybill), merged (ghép). Chọn chế độ phát phía trên rồi tạo link tương ứng.</p>
+              <button id="createShare" class="button button-primary button-wide" type="button">Tạo link ASC-Cloud · Video ghép · merged <span>↗</span></button><div id="shareResult" class="share-result hidden"></div>
             </div>
             <aside class="video-panel"><div class="video-panel-head"><div><div class="eyebrow">QUICK PLAYBACK</div><h3 id="videoPanelTitle">Xem video đóng gói</h3></div><span class="live-indicator"><i></i> PLAYER</span></div>
               <div class="playback-modes" role="group" aria-label="Chọn góc camera">
@@ -72,7 +73,7 @@
         <section id="historyView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">YOUR ACTIVITY</div><h1>Lịch sử tìm kiếm</h1><p>Mở lại nhanh những đơn hàng mày đã tra cứu trên thiết bị này.</p></div><div class="section-heading"><h2>Các đơn gần đây</h2><button id="clearHistory" class="button button-quiet">Xóa lịch sử</button></div><div id="historyList" class="history-grid"><span class="empty-history">Chưa có lịch sử tìm kiếm.</span></div></section>
 
         <section id="bookmarksView" class="view-panel hidden"><div class="page-intro"><div class="eyebrow">FOLLOW UP</div><h1>Đơn cần kiểm tra</h1><p>Danh sách đơn được đánh dấu để xem lại sau. Dữ liệu lưu trên trình duyệt hiện tại.</p></div><div class="section-heading"><h2>Đã đánh dấu</h2><span id="bookmarkCount" class="count-chip">0 đơn</span></div><div id="bookmarkList" class="history-grid"><span class="empty-history">Chưa có đơn nào được đánh dấu.</span></div></section>
-        <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.3.5 · ORIGIN TRACE</b></span><span>PRIVATE · RESPONSIVE · SECURE</span></footer>
+        <footer class="footer"><span>ASCAM VIDEO LOOKUP <b>V1.3.6 · SHARE ROLES</b></span><span>PRIVATE · RESPONSIVE · SECURE</span></footer>
       </div>
     </section>
   </main>
