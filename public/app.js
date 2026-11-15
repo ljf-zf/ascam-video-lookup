@@ -244,7 +244,7 @@ async function search(query) {
   }
   $("detailSection")?.classList.add("hidden");
   try {
-    const data = await api("search?q=" + encodeURIComponent(normalized), { timeoutMs: 25000 });
+    const data = await api("search?q=" + encodeURIComponent(normalized), { timeoutMs: 30000 });
     const items = itemsOf(data);
     $("resultsSection")?.classList.remove("hidden");
     if ($("resultCount")) $("resultCount").textContent = `${items.length} kết quả`;
@@ -293,9 +293,9 @@ function updateShareButton() {
   const button = $("createShare");
   if (!button) return;
   const labels = {
-    overview: "Mở P2P · Toàn cảnh (Overview)",
-    waybill: "Mở P2P · Vận đơn (Waybill)",
-    merged: "Phát video ghép MP4",
+    overview: "Mở trình phát CDN / P2P · Toàn cảnh",
+    waybill: "Mở trình phát CDN / P2P · Vận đơn",
+    merged: "Tải / Ghép file MP4",
   };
   button.innerHTML = `${labels[selectedPlaybackMode] || labels.overview} <span>↗</span>`;
 }
@@ -355,7 +355,7 @@ function renderP2PPlayer(shareUrl, mode, sourceNote = "") {
   $("downloadVideo")?.classList.add("hidden");
 
   if ($("videoFootnote")) {
-    $("videoFootnote").textContent = sourceNote || `Đang phát trực tiếp qua P2P Mesh (${mode}) · Không chờ ghép MP4.`;
+    $("videoFootnote").textContent = sourceNote || `Đang phát qua CDN / P2P (${mode}) · Không chờ ghép MP4.`;
   }
   if ($("shareResult")) {
     $("shareResult").innerHTML = `<b>✓ ${esc(label)}</b> · <a href="${esc(shareUrl)}" target="_blank" rel="noopener">Mở toàn màn hình ở tab mới ↗</a>`;
@@ -366,7 +366,60 @@ function renderP2PPlayer(shareUrl, mode, sourceNote = "") {
   });
 }
 
-async function playVideo(mode, button = null) {
+async function openShareStream(mode, button = null) {
+  if (!selectedSession) return;
+  const sessionId = selectedSession.sessionId || selectedSession.id;
+  const label = mode === "overview" ? "Toàn cảnh (Overview)" : "Vận đơn (Waybill)";
+
+  const cached = findCachedP2PLink(selectedSession, mode);
+  if (cached) {
+    renderP2PPlayer(cached.shareUrl, mode, `Phát trực tiếp qua CDN / P2P (${mode}) cho phiên ${sessionId}.`);
+    clearNote();
+    return;
+  }
+
+  if (button) button.disabled = true;
+  note(`Đang mở luồng CDN / P2P cho ${label}…`);
+  try {
+    const data = await api("share", {
+      method: "POST",
+      timeoutMs: 15000,
+      body: JSON.stringify({
+        orderCode: currentOrderCode(),
+        sessionId,
+        role: mode,
+        mode: "p2p",
+      }),
+    });
+
+    if (!data.shareUrl) throw new Error(`ASCAM không trả URL phát cho ${label}.`);
+
+    // Chỉ lưu vào cache nếu đúng role để không ghi đè nhầm link Overview sang Waybill
+    if (data.roleMatched) {
+      if (!Array.isArray(selectedSession.shareLinks)) selectedSession.shareLinks = [];
+      selectedSession.shareLinks.push({
+        shareUrl: data.shareUrl,
+        role: data.actualRole || mode,
+        sessionId,
+      });
+    }
+
+    renderP2PPlayer(
+      data.shareUrl,
+      mode,
+      data.roleMatched
+        ? `Luồng CDN / P2P · Phiên ${sessionId} · Góc ${label}.`
+        : `Phát luồng phiên ${sessionId} (ASCAM xuất chung luồng ghép cho cả 2 góc camera).`
+    );
+    clearNote();
+  } catch (error) {
+    note(error.message || `Không thể mở luồng ${label}.`, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function playVideo(mode, button = null, forceShareIframe = false) {
   if (!selectedSession) return note("Hãy chọn phiên đóng gói trước.", true);
   if (selectedSession.status === "recording") return note("Phiên đang ghi hình. Hãy đợi ASCAM hoàn tất.", true);
   if (!["overview", "waybill", "merged"].includes(mode)) return;
@@ -375,67 +428,88 @@ async function playVideo(mode, button = null) {
   updateShareButton();
   const sessionId = selectedSession.sessionId || selectedSession.id;
 
-  if (mode === "overview" || mode === "waybill") {
-    const label = mode === "overview" ? "Toàn cảnh (Overview)" : "Vận đơn (Waybill)";
+  // Nếu người dùng bấm trực tiếp nút "Mở trình phát CDN / P2P" ở dưới
+  if (forceShareIframe && (mode === "overview" || mode === "waybill")) {
+    await openShareStream(mode, button);
+    return;
+  }
 
-    const cached = findCachedP2PLink(selectedSession, mode);
-    if (cached) {
-      renderP2PPlayer(cached.shareUrl, mode, `Phát trực tiếp qua P2P (${mode}) cho phiên ${sessionId}.`);
-      clearNote();
+  // Luồng 1: Phát trực tiếp trên thẻ <video> HTML5 sạch sẽ qua endpoint /api/stream (không ghép lại file)
+  if (mode === "overview" || mode === "waybill") {
+    const label = mode === "overview" ? "Camera Toàn cảnh (Overview)" : "Camera Vận đơn (Waybill)";
+    const player = $("videoPlayer");
+    const frame = $("shareFrame");
+
+    if (!player) {
+      await openShareStream(mode, button);
       return;
     }
 
     if (button) button.disabled = true;
-    note(`Đang kết nối P2P tới camera ${label}…`);
+    clearNote();
+
+    if (frame) {
+      frame.src = "about:blank";
+      frame.classList.add("hidden");
+    }
+
+    const streamUrl = `/api/stream?sessionId=${encodeURIComponent(sessionId)}&role=${encodeURIComponent(mode)}`;
+    player.classList.remove("hidden");
+    player.pause();
+    player.src = streamUrl;
+    player.load();
+
+    $("videoPlaceholder")?.classList.add("hidden");
+    $("videoFrameWrap")?.classList.remove("hidden");
+    $("videoLinks")?.classList.remove("hidden");
+    if ($("videoPanelTitle")) $("videoPanelTitle").textContent = label;
+    if ($("videoFootnote")) {
+      $("videoFootnote").textContent = `Đang phát trực tiếp trên HTML5 Player (Phiên ${sessionId}) · Nếu muốn mở giao diện gốc của ASCAM, bấm nút CDN / P2P bên dưới.`;
+    }
+    if ($("downloadVideo")) {
+      $("downloadVideo").href = `/api/download?sessionId=${encodeURIComponent(sessionId)}`;
+      $("downloadVideo").download = `ASCAM-${sessionId}.mp4`;
+      $("downloadVideo").classList.remove("hidden");
+    }
+
+    const existingShare = selectedSession.shareUrl || selectedOrder?.shareUrl;
+    if ($("openShare") && existingShare) {
+      $("openShare").href = existingShare;
+      $("openShare").textContent = `Mở trang Share ASCAM ↗`;
+      $("openShare").classList.remove("hidden");
+    }
+
+    document.querySelectorAll("[data-play-camera]").forEach(item => {
+      item.classList.toggle("is-playing", item.dataset.playCamera === mode);
+    });
+
     try {
-      const data = await api("share", {
-        method: "POST",
-        timeoutMs: 15000,
-        body: JSON.stringify({
-          orderCode: currentOrderCode(),
-          sessionId,
-          role: mode,
-          mode: "p2p",
-        }),
-      });
-
-      if (!data.shareUrl) throw new Error(`ASCAM không trả URL P2P cho camera ${label}.`);
-
-      const isDuplicateUrl = selectedSession._lastOverviewUrl && selectedSession._lastOverviewUrl === data.shareUrl && mode === "waybill";
-      if (mode === "overview") selectedSession._lastOverviewUrl = data.shareUrl;
-
-      if (!Array.isArray(selectedSession.shareLinks)) selectedSession.shareLinks = [];
-      selectedSession.shareLinks.push({
-        shareUrl: data.shareUrl,
-        role: mode,
-        sessionId,
-      });
-
-      renderP2PPlayer(
-        data.shareUrl,
-        mode,
-        isDuplicateUrl 
-          ? `Lưu ý: ASCAM trả về cùng luồng với Toàn cảnh cho góc Waybill. Hãy thử bấm Mở tab riêng.` 
-          : `P2P Mesh · Phiên ${sessionId} · Góc ${label}.`
-      );
-      clearNote();
-    } catch (error) {
-      note(error.message || `Không thể mở camera ${label}.`, true);
+      // Nếu luồng trực tiếp gặp lỗi (ví dụ ASCAM yêu cầu qua P2P cho phiên này), tự động chuyển sang P2P/CDN
+      player.onerror = () => {
+        player.onerror = null;
+        openShareStream(mode, button);
+      };
+      const playPromise = player.play();
+      if (playPromise?.catch) {
+        await playPromise.catch(() => {});
+      }
     } finally {
       if (button) button.disabled = false;
     }
     return;
   }
 
+  // Luồng 2: Nút Video ghép MP4 (/api/stream?mode=merged)
   if (button) button.disabled = true;
   try {
     const player = $("videoPlayer");
     const frame = $("shareFrame");
     if (frame) { frame.src = "about:blank"; frame.classList.add("hidden"); }
     if (player) {
+      player.onerror = null;
       player.classList.remove("hidden");
       player.pause();
-      player.src = `/api/stream?sessionId=${encodeURIComponent(sessionId)}`;
+      player.src = `/api/stream?sessionId=${encodeURIComponent(sessionId)}&mode=merged`;
       player.load();
     }
     $("videoPlaceholder")?.classList.add("hidden");
@@ -443,7 +517,7 @@ async function playVideo(mode, button = null) {
     $("videoLinks")?.classList.remove("hidden");
     if ($("videoPanelTitle")) $("videoPanelTitle").textContent = "Video ghép MP4";
     if ($("videoFootnote")) {
-      $("videoFootnote").textContent = "Đang tải video ghép MP4 từ ASCAM (Cần chờ máy cửa hàng render file theo thời lượng phiên).";
+      $("videoFootnote").textContent = "Đang tải luồng file MP4 ghép từ ASCAM.";
     }
     if ($("downloadVideo")) {
       $("downloadVideo").href = `/api/download?sessionId=${encodeURIComponent(sessionId)}`;
@@ -472,7 +546,7 @@ function updateSessionHint() {
     $("sessionNotice").textContent = recording
       ? "Phiên này đang ghi hình. Hãy đợi nhân viên hoàn tất đóng gói."
       : sessionId
-        ? `Sẵn sàng phát P2P tức thì (Camera hỗ trợ: ${roles}). Chọn Toàn cảnh hoặc Vận đơn để xem ngay.`
+        ? `Sẵn sàng phát trực tiếp (Camera: ${roles}). Bấm Toàn cảnh hoặc Vận đơn để xem ngay.`
         : "Không tìm thấy Session ID hợp lệ.";
   }
   if ($("createShare")) $("createShare").disabled = recording;
@@ -572,10 +646,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.querySelectorAll("[data-play-camera]").forEach(btn => {
-    btn.addEventListener("click", () => playVideo(btn.dataset.playCamera, btn));
+    btn.addEventListener("click", () => playVideo(btn.dataset.playCamera, btn, false));
   });
 
-  $("createShare")?.addEventListener("click", () => playVideo(selectedPlaybackMode, $("createShare")));
+  $("createShare")?.addEventListener("click", () => playVideo(selectedPlaybackMode, $("createShare"), true));
   $("toggleBookmark")?.addEventListener("click", toggleBookmark);
 
   $("clearHistory")?.addEventListener("click", () => {
