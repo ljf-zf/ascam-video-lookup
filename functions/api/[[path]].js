@@ -75,6 +75,7 @@ async function asc(env, path, init = {}) {
 }
 const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(value);
 const safeSession = value => /^\d{6,30}$/.test(String(value || ""));
+const safeCameraId = value => /^\d{1,10}$/.test(String(value || ""));
 
 function safeVideoUrlInfo(raw) {
   if (!raw) return null;
@@ -156,9 +157,9 @@ export async function onRequest({ request, env }) {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      // Camera IDs come from the ASCAM station configuration:
-      // overview = tc-b-N, waybill = vd-b-N (for example tc-b-3 / vd-b-3).
-      if (!/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "Camera ID không hợp lệ. Dùng ID dạng tc-b-3 hoặc vd-b-3." }, 400);
+      // Open API video camId is the numeric cameraId from the session's cameras[] array.
+      // Example in ASCAM docs: cameraId=1 (overview), cameraId=2 (scanner/waybill).
+      if (!safeCameraId(camId)) return json({ error: "camId phải là cameraId dạng số từ dữ liệu cameras[] của ASCAM." }, 400);
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Range: "bytes=0-0",
@@ -217,13 +218,11 @@ export async function onRequest({ request, env }) {
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
       if (!["overview", "waybill", "merged"].includes(mode)) return json({ error: "Chế độ chẩn đoán không hợp lệ." }, 400);
 
-      const camId = mode === "overview"
-        ? `tc-${url.searchParams.get("stationId") || ""}`
-        : mode === "waybill"
-          ? `vd-${url.searchParams.get("stationId") || ""}`
-          : "";
-      if (mode !== "merged" && !/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) {
-        return json({ error: "Không xác định được stationId để tạo ID camera." }, 400);
+      // The Open API example uses numeric cameras[].cameraId (e.g. 1=overview, 2=scanner).
+      // Do not pass station configuration IDs such as tc-b-3 / vd-b-3 to this endpoint.
+      const camId = mode === "merged" ? "" : (url.searchParams.get("cameraId") || (mode === "overview" ? "1" : "2"));
+      if (mode !== "merged" && !safeCameraId(camId)) {
+        return json({ error: "cameraId không hợp lệ. Cần ID số lấy từ cameras[].cameraId." }, 400);
       }
 
       // Sample after the MP4 header; never return or persist video bytes.
@@ -421,34 +420,48 @@ export async function onRequest({ request, env }) {
       const code = input.orderCode || "";
       if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
 
-      // ASCAM API documentation section 4.4 supports role=merged|main|sub.
-      // main is the primary camera angle; sub is the secondary camera angle.
-      // This share endpoint is order-level; the documented request has no sessionId.
+      // ASCAM docs section 4.4: role=main|sub|merged; storage/mode=cloud|p2p.
+      // P2P is the instant Mesh path and avoids uploading a finished MP4 to ASC-Cloud first.
+      // Cloud is retained for explicit merged/permanent share links.
       const role = String(input.role || "merged").toLowerCase();
       if (!["merged", "main", "sub"].includes(role)) {
         return json({ error: "Role chia sẻ không hợp lệ. Chọn merged, main hoặc sub." }, 400);
       }
+      const requestedMode = String(input.mode || input.storage || (role === "merged" ? "cloud" : "p2p")).toLowerCase();
+      if (!["cloud", "p2p"].includes(requestedMode)) {
+        return json({ error: "Chế độ chia sẻ không hợp lệ. Chọn p2p hoặc cloud." }, 400);
+      }
+      // The API documents either `mode` or `storage` for this selector.
+      // Send only the chosen selector to avoid conflicting values.
+      const sharePayload = requestedMode === "p2p"
+        ? { mode: "p2p", role, lang: "vi", theme: "dark" }
+        : { storage: "cloud", role, lang: "vi", theme: "dark" };
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
-        body: JSON.stringify({ storage: "cloud", role, lang: "vi", theme: "dark" }),
-        timeoutMs: 20000,
+        body: JSON.stringify(sharePayload),
+        timeoutMs: requestedMode === "p2p" ? 10000 : 30000,
       });
-      if (result.error) return json({ error: result.error, requestedRole: role }, result.status);
-      if (!result.data.shareUrl && !result.data.shareURL) return json({ error: "ASCAM không trả shareUrl.", requestedRole: role }, 502);
+      if (result.error) return json({ error: result.error, requestedRole: role, requestedMode }, result.status);
+      const shareUrl = result.data.shareUrl || result.data.shareURL || result.data.p2pUrl || result.data.url;
+      if (!shareUrl) return json({ error: "ASCAM không trả URL chia sẻ.", requestedRole: role, requestedMode, upstreamFields: Object.keys(result.data || {}) }, 502);
       const roleLabel = role === "main" ? "góc chính" : role === "sub" ? "góc phụ" : "video ghép";
       return json({
         ...result.data,
+        shareUrl,
         shareScope: "order",
         requestedRole: role,
         roleLabel,
-        note: "Link được tạo theo đơn hàng. Tài liệu API share không công bố tham số sessionId; với đơn có nhiều phiên, không thể đảm bảo link chỉ trỏ đến phiên đang chọn."
+        requestedMode,
+        note: requestedMode === "p2p"
+          ? "Link P2P Mesh được yêu cầu để xem ngay, không upload MP4 lên ASC-Cloud trước. Máy ASCAM/peer tại kho cần đang online."
+          : "Link cloud được tạo ở cấp đơn hàng. Tài liệu API share không công bố tham số sessionId; đơn có nhiều phiên có thể không giới hạn vào phiên đang chọn."
       });
     }
     if ((path === "download" || path === "stream") && method === "GET") {
       const sessionId = url.searchParams.get("sessionId") || "";
       const camId = url.searchParams.get("camId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
-      if (camId && !/^(?:tc|vd)-b-\d{1,3}$/.test(camId)) return json({ error: "camId không hợp lệ. Dùng ID dạng tc-b-3 hoặc vd-b-3." }, 400);
+      if (camId && !safeCameraId(camId)) return json({ error: "camId phải là cameraId dạng số của ASCAM (ví dụ 1 hoặc 2)." }, 400);
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, application/octet-stream;q=0.9, */*;q=0.1",

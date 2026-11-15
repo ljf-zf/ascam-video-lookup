@@ -161,8 +161,12 @@ function shareRoleForPlayback(mode = selectedPlaybackMode) {
 function updateShareButton() {
   const button = $("createShare");
   if (!button) return;
-  const labels = { overview: "Toàn cảnh · main", waybill: "Vận đơn · sub", merged: "Video ghép · merged" };
-  button.innerHTML = `Tạo link ASC-Cloud · ${labels[selectedPlaybackMode] || labels.merged} <span>↗</span>`;
+  const labels = {
+    overview: "Xem ngay P2P · Toàn cảnh",
+    waybill: "Xem ngay P2P · Vận đơn",
+    merged: "Tạo video ghép ASC-Cloud",
+  };
+  button.innerHTML = `${labels[selectedPlaybackMode] || labels.merged} <span>↗</span>`;
 }
 function resetVideo() {
   lastShare = null;
@@ -180,14 +184,61 @@ function resetVideo() {
   document.querySelectorAll("[data-play-camera]").forEach(button => button.classList.remove("is-playing"));
   updateShareButton();
 }
-function cameraIdForMode(mode) {
-  if (mode === "merged") return "";
-  const stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
-  if (!/^b-\d{1,3}$/.test(stationId)) {
-    throw new Error("Không tìm thấy stationId của phiên. Không thể xác định ID camera gốc an toàn.");
+function selectedCameraEntries() {
+  const sessionId = String(selectedSession?.sessionId || selectedSession?.id || "");
+  const orderSessions = Array.isArray(selectedOrder?.sessions) ? selectedOrder.sessions : [];
+  const matchingOrderSession = orderSessions.find(item => String(item?.sessionId || item?.id || "") === sessionId);
+  const candidates = [
+    selectedSession?.cameras, selectedSession?.Cameras,
+    matchingOrderSession?.cameras, matchingOrderSession?.Cameras,
+    selectedOrder?.cameras, selectedOrder?.Cameras,
+  ];
+  return candidates.find(items => Array.isArray(items) && items.length) || [];
+}
+function normalizedCameraRole(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function cameraIdFromEntry(camera) {
+  const direct = camera?.cameraId ?? camera?.camId ?? camera?.id;
+  if (direct !== undefined && direct !== null && /^\d{1,10}$/.test(String(direct))) return String(direct);
+  const urlValue = camera?.downloadUrl || camera?.downloadURL || camera?.url || "";
+  if (urlValue) {
+    try {
+      const parsed = new URL(urlValue, location.origin);
+      const fromUrl = parsed.searchParams.get("camId");
+      if (fromUrl && /^\d{1,10}$/.test(fromUrl)) return fromUrl;
+    } catch { /* URL field may be relative or omitted. */ }
   }
-  // ASCAM station configuration: tc-b-N = Overview, vd-b-N = Waybill.
-  return `${mode === "overview" ? "tc" : "vd"}-${stationId}`;
+  return "";
+}
+function cameraDetailsForMode(mode) {
+  if (mode === "merged") return null;
+  const entries = selectedCameraEntries();
+  const roles = mode === "overview"
+    ? new Set(["overview", "main", "primary", "toancanh"])
+    : new Set(["waybill", "scanner", "sub", "secondary", "soima", "vandon"]);
+  let chosen = entries.find(camera => roles.has(normalizedCameraRole(camera?.role || camera?.cameraRole || camera?.type)));
+  if (!chosen && entries.length >= 2) chosen = entries[mode === "overview" ? 0 : 1];
+  const fromApi = chosen ? cameraIdFromEntry(chosen) : "";
+  if (fromApi) {
+    return {
+      id: fromApi,
+      name: chosen?.cameraName || chosen?.name || (mode === "overview" ? "Toàn cảnh" : "Soi mã vận đơn"),
+      role: chosen?.role || "",
+      source: "ASCAM cameras[]",
+    };
+  }
+  // ASCAM Open API documentation example 4.2 shows cameras[].cameraId=1 (overview)
+  // and cameraId=2 (scanner/waybill), with downloadUrl using ?camId=1 / ?camId=2.
+  return {
+    id: mode === "overview" ? "1" : "2",
+    name: mode === "overview" ? "Toàn cảnh" : "Soi mã vận đơn",
+    role: mode === "overview" ? "overview" : "scanner/waybill",
+    source: "API sample fallback (1/2)",
+  };
+}
+function cameraIdForMode(mode) {
+  return mode === "merged" ? "" : cameraDetailsForMode(mode).id;
 }
 function playbackUrl(mode, download = false) {
   const sessionId = selectedSession?.sessionId || selectedSession?.id;
@@ -213,9 +264,10 @@ async function playVideo(mode, button = null) {
     $("videoFrameWrap").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
     $("videoPanelTitle").textContent = label;
+    const cameraInfo = mode === "merged" ? null : cameraDetailsForMode(mode);
     $("videoFootnote").textContent = mode === "merged"
       ? "Đang phát video ghép từ ASCAM."
-      : `Đang yêu cầu camera ${cameraIdForMode(mode)} · HTTP Range · Token được giữ ở backend.`;
+      : `Đang phát cameraId=${cameraInfo.id} (${cameraInfo.name}) · ${cameraInfo.source} · HTTP Range · Token giữ ở backend.`;
     $("downloadVideo").href = playbackUrl(mode, true);
     $("downloadVideo").download = `ASCAM-${selectedSession.sessionId || selectedSession.id}-${mode}.mp4`;
     document.querySelectorAll("[data-play-camera]").forEach(item => item.classList.toggle("is-playing", item.dataset.playCamera === mode));
@@ -301,13 +353,11 @@ async function diagnoseVideoSource(mode, buttonId) {
   if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
   if (selectedSession?.status === "recording") return note("Không kiểm tra video của phiên đang ghi hình. Hãy chọn phiên đã hoàn tất.", true);
   if (!["overview", "waybill", "merged"].includes(mode)) return;
-  let stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
-  if (mode !== "merged" && !/^b-\d{1,3}$/.test(stationId)) return note("Không tìm thấy stationId của phiên để xác định camera.", true);
-
+  const cameraInfo = mode === "merged" ? null : cameraDetailsForMode(mode);
   const button = $(buttonId);
   const output = $("cameraProbeResults");
   const modeLabel = mode === "overview" ? "Overview" : mode === "waybill" ? "Waybill" : "Video ghép";
-  const camId = mode === "overview" ? `tc-${stationId}` : mode === "waybill" ? `vd-${stationId}` : "";
+  const camId = cameraInfo?.id || "";
   probeBusy = true;
   document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged,#probeAll").forEach(item => { item.disabled = true; });
   const originalText = button.textContent;
@@ -315,7 +365,7 @@ async function diagnoseVideoSource(mode, buttonId) {
   output.insertAdjacentHTML("afterbegin", `<div class="camera-probe-row probe-pending"><b>${esc(camId || "merged=1")}</b><p>Đang yêu cầu tối đa 64 KB từ nguồn ${esc(modeLabel)}…</p></div>`);
   try {
     const params = new URLSearchParams({ sessionId: String(sessionId), mode });
-    if (stationId) params.set("stationId", stationId);
+    if (cameraInfo) params.set("cameraId", cameraInfo.id);
     const result = await api(`camera-diagnose?${params.toString()}`, { timeoutMs: 25000 });
     const pending = [...output.querySelectorAll(".camera-probe-row")].find(row => row.classList.contains("probe-pending"));
     if (pending) pending.outerHTML = renderCameraProbeResult(result);
@@ -339,14 +389,13 @@ async function diagnoseAllVideoSources(button = null) {
   if (!sessionId || !/^\d{6,30}$/.test(String(sessionId))) return note("Phiên đang chọn không có Session ID hợp lệ.", true);
   if (selectedSession?.status === "recording") return note("Không kiểm tra video khi phiên vẫn đang ghi hình.", true);
 
-  const stationId = String(selectedSession?.stationId || selectedOrder?.stationId || "").trim();
-  if (!/^b-\d{1,3}$/.test(stationId)) return note("Không tìm thấy stationId của phiên để xác định camera.", true);
-
+  const overviewCamera = cameraDetailsForMode("overview");
+  const waybillCamera = cameraDetailsForMode("waybill");
   const output = $("cameraProbeResults");
   const modes = [
-    { mode: "overview", title: "Overview", camId: `tc-${stationId}` },
-    { mode: "waybill", title: "Waybill", camId: `vd-${stationId}` },
-    { mode: "merged", title: "Video ghép", camId: "merged=1" },
+    { mode: "overview", title: "Overview", camId: overviewCamera.id, cameraInfo: overviewCamera },
+    { mode: "waybill", title: "Waybill", camId: waybillCamera.id, cameraInfo: waybillCamera },
+    { mode: "merged", title: "Video ghép", camId: "merged=1", cameraInfo: null },
   ];
   const buttons = [...document.querySelectorAll("#probeOverview,#probeWaybill,#probeMerged,#probeAll")];
   probeBusy = true;
@@ -362,7 +411,8 @@ async function diagnoseAllVideoSources(button = null) {
       const pendingId = `probe-pending-${i}`;
       output.insertAdjacentHTML("beforeend", `<div id="${pendingId}">${renderPendingProbe(item.camId, item.title)}</div>`);
       try {
-        const params = new URLSearchParams({ sessionId: String(sessionId), mode: item.mode, stationId });
+        const params = new URLSearchParams({ sessionId: String(sessionId), mode: item.mode });
+        if (item.cameraInfo) params.set("cameraId", item.cameraInfo.id);
         const result = await api(`camera-diagnose?${params.toString()}`, { timeoutMs: 25000 });
         results.push({ ...result, requestedMode: item.mode });
         const pending = $(pendingId);
@@ -407,7 +457,7 @@ function updateSessionHint() {
   $("sessionNotice").textContent = recording
     ? "Phiên này đang ghi hình. Hãy đợi ASCAM hoàn tất trước khi tạo link."
     : sessionId
-      ? "Phiên đang chọn sẽ được dùng để phát/tải MP4 qua sessionId. Link ASC-Cloud được tạo ở cấp đơn hàng theo API hiện đã xác minh."
+      ? "Phát riêng camera bằng cameraId số của ASCAM (cameras[].cameraId); nút xem nhanh dùng P2P Mesh, không upload video trước."
       : "Không tìm thấy sessionId trong dữ liệu phiên; chưa thể phát hoặc tải MP4 trực tiếp.";
   $("createShare").disabled = recording;
 }
@@ -428,24 +478,32 @@ async function share() {
   const button = $("createShare");
   button.disabled = true;
   const requestedRole = shareRoleForPlayback();
-  const roleLabel = requestedRole === "main" ? "Toàn cảnh (góc chính)" : requestedRole === "sub" ? "Vận đơn (góc phụ)" : "Video ghép";
-  button.textContent = `Đang tạo link ${roleLabel}…`;
+  const isQuickP2P = requestedRole !== "merged";
+  const requestedMode = isQuickP2P ? "p2p" : "cloud";
+  const roleLabel = requestedRole === "main" ? "Toàn cảnh" : requestedRole === "sub" ? "Vận đơn" : "Video ghép";
+  button.textContent = isQuickP2P ? `Đang cấp link P2P ${roleLabel}…` : "Đang tạo video ghép ASC-Cloud…";
   try {
     const code = currentOrderCode();
-    const data = await api("share", { method: "POST", body: JSON.stringify({ orderCode: code, role: requestedRole }) });
-    const shareUrl = data.shareUrl || data.shareURL;
-    if (!shareUrl) throw new Error("ASCAM không trả shareUrl.");
+    const data = await api("share", {
+      method: "POST",
+      body: JSON.stringify({ orderCode: code, role: requestedRole, mode: requestedMode })
+    });
+    const shareUrl = data.shareUrl || data.shareURL || data.p2pUrl || data.url;
+    if (!shareUrl) throw new Error("ASCAM không trả URL xem video.");
     lastShare = data;
     const expiry = data.expiresAt ? `Hết hạn: ${date(data.expiresAt)}.` : "";
-    const scopeNote = "API chia sẻ hoạt động ở cấp đơn hàng, không có tham số sessionId trong tài liệu; đơn có nhiều phiên có thể không giới hạn vào phiên đang chọn.";
-    $("shareResult").innerHTML = `<b>✓ Đã tạo link ASC-Cloud · ${esc(roleLabel)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">${esc(shareUrl)}</a><small>${esc(expiry)} ${esc(scopeNote)}</small>`;
+    const scopeNote = "API share hoạt động ở cấp đơn hàng; tài liệu chưa công bố tham số sessionId. Đơn có nhiều phiên cần kiểm tra đúng phiên.";
+    const modeLabel = isQuickP2P ? "P2P Mesh tức thì · không upload trước" : "ASC-Cloud · có thể cần thời gian ghép/tải lên";
+    $("shareResult").innerHTML = `<b>✓ Đã yêu cầu ${esc(modeLabel)} · ${esc(roleLabel)}</b><br><a href="${esc(shareUrl)}" target="_blank" rel="noopener">${esc(shareUrl)}</a><small>${esc(expiry)} ${esc(isQuickP2P ? "Peer ASCAM tại kho cần đang online. " : "")}${esc(scopeNote)}</small>`;
     $("shareResult").classList.remove("hidden");
     $("openShare").href = shareUrl;
-    $("openShare").textContent = `Mở ASC-Cloud · ${roleLabel} ↗`;
+    $("openShare").textContent = isQuickP2P ? `Mở xem ngay · ${roleLabel} ↗` : `Mở ASC-Cloud · ${roleLabel} ↗`;
     $("openShare").classList.remove("hidden");
     $("videoLinks").classList.remove("hidden");
-    $("videoFootnote").textContent = `Link ASC-Cloud được tạo với role=${requestedRole}. Đây là nhánh chia sẻ riêng theo hợp đồng API ASCAM; nó không sử dụng camId của luồng tải MP4.`;
-    note(`Đã yêu cầu ASCAM tạo link ${roleLabel}. Mở link để xác nhận góc video thực tế.`);
+    $("videoFootnote").textContent = isQuickP2P
+      ? `Đã yêu cầu P2P Mesh role=${requestedRole}; không tải MP4 lên ASC-Cloud trước. Máy ASCAM/peer tại kho phải online.`
+      : `Đã yêu cầu ASC-Cloud role=${requestedRole}; nhánh này có thể cần ghép/xuất video trước khi link sẵn sàng.`;
+    note(isQuickP2P ? `Đã yêu cầu link P2P ${roleLabel}. Mở link để xem ngay.` : "Đã yêu cầu tạo video ghép và lưu ASC-Cloud.");
   } catch (error) { note(error.message, true); }
   finally { updateShareButton(); button.disabled = selectedSession?.status === "recording"; }
 }

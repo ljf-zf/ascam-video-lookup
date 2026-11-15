@@ -1,3 +1,10 @@
+## 1.3.7 – Numeric Camera IDs + Instant P2P
+- Fix direct camera playback to use numeric `cameras[].cameraId` from the ASCAM Open API response (documented example: 1=overview, 2=scanner/waybill), not station config IDs such as `tc-b-N` / `vd-b-N`.
+- Resolve numeric IDs by camera `role` (`overview`/`main`, `waybill`/`scanner`/`sub`) when the API includes `cameras[]`; use documented 1/2 fallback only when camera metadata is omitted.
+- Update diagnostics and stream/download validation to forward numeric `camId`.
+- Use `mode: "p2p"` for `main` and `sub` share links so ASCAM can return a P2P Mesh access link without pre-uploading the MP4 to ASC-Cloud.
+- Keep `role: "merged"` on the `storage: "cloud"` path as an explicit slower merged/archive action.
+
 ## 1.3.6 – ASCAM Share Roles
 - Add documented ASCAM share roles: `main`, `sub`, and `merged`.
 - Map Overview → `main`, Waybill → `sub`, Video ghép → `merged` for share-link creation.

@@ -1,19 +1,45 @@
-## Version 1.3.6 – ASCAM share roles
-The ASCAM API documentation's order-share endpoint supports `role: "main"`, `"sub"`, and `"merged"`. The app maps Overview → main, Waybill → sub, and Video ghép → merged when creating ASC-Cloud share links. This is separate from the direct `camId` MP4 stream path. The share endpoint is documented at order scope and does not document a `sessionId` argument; orders with multiple sessions may therefore not be limited to the selected session.
+# ASCAM Video Lookup v1.3.7 – Instant Camera / P2P
 
-# ASCAM Video Lookup v1.3.5
+## Immediate camera playback
 
-## v1.3.5 Origin Route Trace
-This release focuses on proving where ASCAM sends camera-specific video requests before changing playback behavior further.
+- Direct playback/download uses `GET /api/v1/videos/{sessionId}/download?camId={cameraId}`.
+- `cameraId` is the **numeric API camera ID** from `cameras[].cameraId`, not the station-local RTSP labels such as `tc-b-3` or `vd-b-3`.
+- The ASCAM API documentation example maps `cameraId: 1` to `role: "overview"` and `cameraId: 2` to `role: "scanner"`. When the order/session response supplies `cameras[]`, the app resolves IDs from that array by role/name. If it does not, the UI explicitly marks the documented `1/2` fallback.
+- The merged stream remains explicit: `GET /api/v1/videos/{sessionId}/download?merged=1`.
+- Playback uses browser `Range` requests and a streaming proxy; it does not first download or generate the merged MP4.
 
-- Runs three source diagnostics sequentially with one button.
-- Requests one bounded 64 KiB range at byte offset 1 MiB.
-- Records HTTP status, Content-Range, cache headers, redirect chain and final upstream route.
-- Sanitizes redirect/final URL metadata: token and signature query values are never returned to the browser.
-- If the actual playback request explicitly resolves to `merged=1` despite a requested `camId`, the backend blocks it and returns `CAMERA_REDIRECTED_TO_MERGED`.
-- Uses the Hybrid-Cloud base URL by default; no store-PC Tunnel is required for API calls.
+## Fast P2P share links
 
-The diagnostics do not prove two full files differ from a single sample alone. The redirect trace is the key evidence: if `camId=tc-b-N` or `camId=vd-b-N` is redirected to a `merged=1` destination, the routing problem is upstream. If no redirect occurs but the 1 MiB samples remain identical, ASCAM may be ignoring `camId` or mapping these IDs to one asset.
+- Overview share: `POST /api/v1/orders/{orderCode}/share` with `{ mode: "p2p", role: "main", lang: "vi", theme: "dark" }`.
+- Waybill share: the same endpoint with `mode: "p2p", role: "sub"`.
+- Merged/archive share: `{ storage: "cloud", role: "merged", ... }`; this can take longer because ASCAM creates/uploads the merged asset.
+- P2P is intended to avoid pre-uploading the MP4 to ASC-Cloud. The ASCAM peer/node at the store must remain online for P2P playback. The share API is documented at order scope, not session scope, so for orders with multiple sessions the selected session may not be guaranteed by that share endpoint. Use direct `/stream?sessionId=...&camId=...` for the selected session.
+
+## Deploy without installing Node.js
+
+1. Upload the **contents** of this project to the root of the GitHub repository connected to Cloudflare Pages (do not upload the ZIP itself).
+2. Cloudflare Pages build settings: Framework preset `None`, build command empty, build output directory `public`, root directory `/`.
+3. Commit to the production branch and let Cloudflare Pages deploy.
+4. Keep encrypted Production Secrets: `APP_PASSWORD`, `SESSION_SECRET`, and `ASCAM_API_TOKEN`.
+5. `ASCAM_API_BASE` defaults in `wrangler.toml` to `https://goldentech.ghihinh.com/api/v1`. If the Cloudflare dashboard has an override, update it to this same Hybrid-Cloud URL. A store-PC Tunnel is not required for these Hybrid-Cloud API calls. Never put the API token in GitHub.
+
+## Relevant Pages API routes
+
+- `GET /api/status`, `/api/search?q=...`, `/api/order?code=...`
+- `GET /api/stream?sessionId=...&camId=<numeric cameraId>` for direct original camera streaming; omit `camId` only for explicit merged playback.
+- `GET /api/download?sessionId=...&camId=<numeric cameraId>` for direct camera download.
+- `GET /api/camera-diagnose?sessionId=...&mode=overview|waybill|merged` for bounded sample/fingerprint diagnostics.
+- `POST /api/share` selects P2P main/sub for camera share and Cloud merged for archive/merged share.
+
+## Security and operational notes
+
+- `APP_PASSWORD`, `SESSION_SECRET`, and `ASCAM_API_TOKEN` must remain encrypted Cloudflare Secrets.
+- The bearer token is read only by the Pages Function and is not returned to the browser.
+- Login cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, and expires after 10 hours.
+- Direct MP4 streaming uses the selected `sessionId` plus numeric `cameraId`; it is separate from order-level P2P share links.
+- P2P removes the need for the user to keep a manual Cloudflare Tunnel running, but it is not an offline path: the ASCAM node/peer must be online.
+- Merged video generation/ASC-Cloud upload is intentionally a separate, slower operation.
+
 
 # ASCAM Video Lookup v1.1.0 — Focus Cinema
 
