@@ -521,8 +521,36 @@
     }
     .cam-expand-btn:hover { background: var(--primary); border-color: var(--primary); }
 
-    /* Cả CAM 1 và CAM 2 đều dùng chung kiến trúc GPU Canvas siêu mượt */
-    .canvas-viewport {
+    /* Màn 1 (Trái): Hiển thị trực tiếp thẻ <video> để Chrome cấp 100% ưu tiên giải mã phần cứng GPU */
+    .overview-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      cursor: grab;
+    }
+
+    #OverviewZoomWrap {
+      width: 100%;
+      height: 100%;
+      transition: transform 0.12s ease-out;
+      transform-origin: center center;
+    }
+
+    #mainVideo {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 200%;
+      object-fit: fill;
+      display: block;
+      background: #000;
+    }
+
+    /* Màn 2 (Phải): Vẽ trực tiếp 50% nửa dưới (Mã QR Vận đơn) bằng GPU Canvas desynchronized */
+    .waybill-viewport {
       position: relative;
       width: 100%;
       height: 100%;
@@ -534,44 +562,13 @@
       background: #000;
     }
 
-    .render-canvas {
-      position: relative;
-      z-index: 2;
+    #waybillCanvas {
       width: 100%;
       height: 100%;
       object-fit: fill;
       display: block;
       transition: transform 0.12s ease-out;
       transform-origin: center center;
-    }
-
-    /* Bộ giải mã gốc nằm trong khung nhìn để Chrome cấp 100% phần cứng GPU nhưng không gây giật layout */
-    #mainVideo {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 2px;
-      height: 2px;
-      opacity: 0.01;
-      pointer-events: none;
-      z-index: 1;
-    }
-
-    .stream-status-pill {
-      position: absolute;
-      bottom: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 15;
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(255,255,255,0.15);
-      color: #fff;
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 600;
-      pointer-events: none;
-      white-space: nowrap;
     }
 
     /* Khung P2P / CDN Nhanh (1A) */
@@ -756,14 +753,14 @@
       </div>
     </aside>
 
-    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH ĐỒNG BỘ GPU CANVAS (70%) -->
+    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH SONG SONG (70%) -->
     <section class="main-col">
 
       <!-- Trạng thái chờ khi chưa chọn đơn -->
       <div id="emptyState">
-        <div style="font-size:42px">🎥</div>
-        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Chọn hoặc tìm đơn hàng để xem ngay</h2>
-        <p style="font-size:13px;max-width:440px">Cả 2 màn hình Toàn cảnh và Vận đơn đều được đồng bộ qua bộ vẽ phần cứng GPU Canvas mượt mà.</p>
+        <div style="font-size:42px">⚡</div>
+        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Nhập mã đơn hoặc chọn đơn ở cột trái để xem ngay</h2>
+        <p style="font-size:13px;max-width:440px">Công nghệ cắt khúc 1MB Byte-Range & Bộ nhớ đệm RAM Cloudflare giúp hiển thị hình ảnh ngay lập tức.</p>
       </div>
 
       <!-- Khung làm việc khi đã mở đơn -->
@@ -795,36 +792,36 @@
         <!-- Vùng phát Video -->
         <div class="stage-container">
 
-          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG CÙNG VẼ BẰNG GPU CANVAS -->
+          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG (TRÁI = TOÀN CẢNH | PHẢI = VẬN ĐƠN QR) -->
           <div id="dualStage">
-            <!-- Màn 1: Camera Toàn Cảnh (Nửa trên - Vẽ bằng GPU Canvas giống hệt CAM 2) -->
+            <!-- Màn 1: Camera Toàn Cảnh (Nửa trên - Giải mã trực tiếp bằng phần cứng GPU) -->
             <div id="camBoxOverview" class="cam-card">
               <span class="cam-badge">⛶ CAM 1 · TOÀN CẢNH (BÀN ĐÓNG)</span>
               <div class="cam-actions-right">
                 <button type="button" id="btnZoomOverview" class="cam-expand-btn" title="Phóng to cận cảnh bàn đóng gói">🔍 Zoom</button>
                 <button type="button" id="btnExpandOverview" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Toàn cảnh">⤢ Phóng to</button>
               </div>
-              <span id="streamStatusPill" class="stream-status-pill hidden">⚡ Đang kết nối video…</span>
-              <div class="canvas-viewport" id="overviewViewport" title="Lăn chuột để Zoom bàn đóng gói">
-                <video id="mainVideo" playsinline preload="auto"></video>
-                <canvas id="overviewCanvas" class="render-canvas"></canvas>
+              <div class="overview-viewport" id="overviewViewport" title="Lăn chuột để Zoom bàn đóng gói">
+                <div id="OverviewZoomWrap">
+                  <video id="mainVideo" playsinline preload="auto"></video>
+                </div>
               </div>
             </div>
 
-            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Vẽ bằng GPU Canvas) -->
+            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Vẽ bằng GPU Canvas desynchronized) -->
             <div id="camBoxWaybill" class="cam-card">
               <span class="cam-badge">📄 CAM 2 · VẬN ĐƠN (SOI MÃ QR)</span>
               <div class="cam-actions-right">
                 <button type="button" id="btnZoomWaybill" class="cam-expand-btn" title="Phóng to cận cảnh mã QR">🔍 Zoom QR</button>
                 <button type="button" id="btnExpandWaybill" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Vận đơn">⤢ Phóng to</button>
               </div>
-              <div class="canvas-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
-                <canvas id="waybillCanvas" class="render-canvas"></canvas>
+              <div class="waybill-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
+                <canvas id="waybillCanvas"></canvas>
               </div>
             </div>
           </div>
 
-          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL (Chỉ mở khi người dùng chủ động bấm nút ⚡ CDN / P2P) -->
+          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL -->
           <div id="p2pStage" class="hidden">
             <iframe id="p2pFrame" allow="autoplay; fullscreen"></iframe>
           </div>
@@ -876,10 +873,9 @@
     let rafId = null;
     let retryTimer = null;
     let retryCount = 0;
-    let hasRenderedFirstFrame = false;
     let toastTimer = null;
-    let ovCtx = null;
     let wbCtx = null;
+    const prewarmedSet = new Set();
 
     function esc(s = "") {
       return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -905,22 +901,11 @@
       box.classList.toggle("error", isErr);
       box.classList.remove("hidden");
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => box.classList.add("hidden"), 2800);
-    }
-
-    function setStreamStatus(text = "") {
-      const pill = $("streamStatusPill");
-      if (!pill) return;
-      if (!text) {
-        pill.classList.add("hidden");
-      } else {
-        pill.textContent = text;
-        pill.classList.remove("hidden");
-      }
+      toastTimer = setTimeout(() => box.classList.add("hidden"), 2500);
     }
 
     async function api(path, opts = {}) {
-      const { timeoutMs = 20000, ...rest } = opts;
+      const { timeoutMs = 18000, ...rest } = opts;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -940,12 +925,40 @@
         return data;
       } catch (err) {
         if (ctrl.signal.aborted) {
-          throw new Error("Máy chủ cửa hàng đang bận xử lý, vui lòng thử lại.");
+          throw new Error("Máy chủ cửa hàng đang bận, vui lòng thử lại.");
         }
         throw err;
       } finally {
         clearTimeout(timer);
       }
+    }
+
+    function extractSid(item) {
+      if (!item) return "";
+      if (item.sessionId || item.id) return String(item.sessionId || item.id);
+      if (Array.isArray(item.sessions) && item.sessions[0]) {
+        return String(item.sessions[0].sessionId || item.sessions[0].id || "");
+      }
+      return "";
+    }
+
+    // Yêu cầu Worker nạp sẵn khúc 1MB đầu tiên vào RAM khi người dùng rê chuột lên đơn hàng
+    function triggerServerPrewarm(sessionId) {
+      const sId = String(sessionId || "");
+      if (!sId || prewarmedSet.has(sId)) return;
+      prewarmedSet.add(sId);
+      fetch(`/api/prewarm?sessionId=${encodeURIComponent(sId)}`, { credentials: "same-origin" }).catch(() => {});
+    }
+
+    function bindHoverPrewarm(container, items) {
+      if (!container) return;
+      container.querySelectorAll("[data-idx]").forEach(btn => {
+        const item = items[Number(btn.dataset.idx)];
+        const sId = extractSid(item);
+        if (!sId) return;
+        btn.addEventListener("mouseenter", () => triggerServerPrewarm(sId), { passive: true });
+        btn.addEventListener("touchstart", () => triggerServerPrewarm(sId), { passive: true });
+      });
     }
 
     function switchTab(tab) {
@@ -1041,6 +1054,7 @@
       const hEl = $("listHistory");
       if (hEl) {
         hEl.innerHTML = renderItems(hist, "Chưa có lịch sử tra cứu.");
+        bindHoverPrewarm(hEl, hist);
         hEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = hist[Number(b.dataset.idx)];
@@ -1052,6 +1066,7 @@
       const sEl = $("listSaved");
       if (sEl) {
         sEl.innerHTML = renderItems(saved, "Chưa có đơn nào được đánh dấu.");
+        bindHoverPrewarm(sEl, saved);
         sEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = saved[Number(b.dataset.idx)];
@@ -1061,7 +1076,7 @@
       }
     }
 
-    // TÌM KIẾM ĐƠN HÀNG (KHÔNG GỌI STREAM NGẦM LÚC GÕ ĐỂ TRÁNH NGHẼN MẠCH CỬA HÀNG)
+    // TÌM KIẾM ĐƠN HÀNG & MỞ NGAY KẾT QUẢ ĐẦU TIÊN
     let lastSearchResults = [];
 
     async function doSearch(rawQuery) {
@@ -1073,7 +1088,7 @@
       switchTab("results");
 
       try {
-        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 22000 });
+        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 20000 });
         const items = Array.isArray(data?.items) ? data.items : [];
         lastSearchResults = items;
         setText("badgeResults", items.length);
@@ -1087,7 +1102,7 @@
                 const when = item.packedAt || item.startedAt || item.createdAt;
                 const done = item.status === "completed";
                 return `
-                  <button type="button" class="order-item" data-idx="${idx}">
+                  <button type="button" class="order-item ${idx === 0 ? "active" : ""}" data-idx="${idx}">
                     <span class="order-item-main">
                       <b class="order-item-code">${esc(code)}</b>
                       <span class="order-item-sub"><span>Bàn: ${esc(st)}</span><span>${fmtDate(when)}</span></span>
@@ -1097,6 +1112,8 @@
                 `;
               }).join("")
             : `<div class="empty-box">Không tìm thấy đơn khớp "${esc(q)}" (đã quét ${data.scannedRecords || 0}/${data.totalRecords || 0} đơn).</div>`;
+
+          bindHoverPrewarm(listEl, items);
 
           listEl.querySelectorAll("[data-idx]").forEach(b => {
             b.addEventListener("click", () => {
@@ -1108,12 +1125,10 @@
           });
         }
 
-        if (items.length === 1) {
-          const firstBtn = listEl?.querySelector(".order-item");
-          if (firstBtn) firstBtn.classList.add("active");
+        // Mở luôn kết quả đầu tiên ngay lập tức để người dùng không phải tốn thêm 1 cú click
+        if (items.length >= 1) {
           openOrderInstant(items[0]);
-        } else if (items.length > 1) {
-          toast(`Tìm thấy ${items.length} đơn. Chọn đơn ở cột trái.`);
+          if (items[1]) triggerServerPrewarm(extractSid(items[1]));
         }
       } catch (err) {
         toast(err.message || "Lỗi khi tìm kiếm.", true);
@@ -1122,7 +1137,6 @@
       }
     }
 
-    // MỞ ĐƠN HÀNG TỨC THÌ (KHÔNG GỌI THÊM /api/order KHI ĐÃ CÓ SESSION ID ĐỂ DỒN 100% BĂNG THÔNG CHO VIDEO)
     async function openOrderInstant(rawItem) {
       const order = rawItem?.order || rawItem?.data?.order || rawItem;
       const code = order?.orderCode || order?.OrderCode || order?.rawCode || order?.code || "";
@@ -1202,36 +1216,29 @@
         }).join("");
 
       bar.querySelectorAll("[data-sess-idx]").forEach(btn => {
+        const s = currentSessions[Number(btn.dataset.sessIdx)];
+        btn.addEventListener("mouseenter", () => triggerServerPrewarm(extractSid(s)), { passive: true });
         btn.addEventListener("click", () => {
           bar.querySelectorAll(".sess-btn").forEach(x => x.classList.remove("active"));
           btn.classList.add("active");
-          currentSession = currentSessions[Number(btn.dataset.sessIdx)];
+          currentSession = s;
           renderOrderHeader();
           loadCurrentSessionVideo();
         });
       });
     }
 
-    // ĐỘNG CƠ VẼ KÉP GPU CANVAS: VẼ ĐỒNG THỜI CAM 1 (NỬA TRÊN) & CAM 2 (NỬA DƯỚI) TRƠN TRU NHƯ NHAU
-    function drawBothCanvases() {
+    // ĐỒNG BỘ GPU CANVAS CHO CAM 2 (VẬN ĐƠN QR)
+    function drawWaybillCanvas() {
       const video = $("mainVideo");
-      const ovCanvas = $("overviewCanvas");
       const wbCanvas = $("waybillCanvas");
-      if (!video || !ovCanvas || !wbCanvas || video.readyState < 2) return;
+      if (!video || !wbCanvas || video.readyState < 2) return;
 
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (!vw || !vh) return;
 
       const halfH = Math.floor(vh / 2);
-
-      // Khởi tạo kích thước và ngữ cảnh GPU desynchronized cho cả 2 màn hình
-      if (ovCanvas.width !== vw || ovCanvas.height !== halfH) {
-        ovCanvas.width = vw;
-        ovCanvas.height = halfH;
-        ovCtx = ovCanvas.getContext("2d", { alpha: false, desynchronized: true });
-      }
-      if (!ovCtx) ovCtx = ovCanvas.getContext("2d", { alpha: false, desynchronized: true });
 
       if (wbCanvas.width !== vw || wbCanvas.height !== halfH) {
         wbCanvas.width = vw;
@@ -1240,18 +1247,8 @@
       }
       if (!wbCtx) wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
 
-      // Vẽ CAM 1 (Nửa trên: 0 -> halfH)
-      if (ovCtx) {
-        ovCtx.drawImage(video, 0, 0, vw, halfH, 0, 0, vw, halfH);
-      }
-      // Vẽ CAM 2 (Nửa dưới: halfH -> vh)
       if (wbCtx) {
         wbCtx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
-      }
-
-      if (!hasRenderedFirstFrame) {
-        hasRenderedFirstFrame = true;
-        setStreamStatus("");
       }
     }
 
@@ -1274,7 +1271,7 @@
 
       if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
         const onFrame = () => {
-          drawBothCanvases();
+          drawWaybillCanvas();
           if (!video.paused && !video.ended) {
             vfcId = video.requestVideoFrameCallback(onFrame);
           }
@@ -1284,7 +1281,7 @@
         let lastDraw = 0;
         const tick = now => {
           if (now - lastDraw >= 33) {
-            drawBothCanvases();
+            drawWaybillCanvas();
             lastDraw = now;
           }
           if (!video.paused && !video.ended) {
@@ -1321,7 +1318,7 @@
       const sessionId = session?.sessionId || session?.id;
       const res = await api("share", {
         method: "POST",
-        timeoutMs: 15000,
+        timeoutMs: 12000,
         body: JSON.stringify({ orderCode: code, sessionId, role: "overview", storage: "p2p" }),
       });
       if (res?.shareUrl) {
@@ -1333,8 +1330,8 @@
 
     function setOverviewZoom(z) {
       overviewZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
-      const canvas = $("overviewCanvas");
-      if (canvas) canvas.style.transform = `scale(${overviewZoom})`;
+      const wrap = $("OverviewZoomWrap");
+      if (wrap) wrap.style.transform = `scale(${overviewZoom})`;
       const btn = $("btnZoomOverview");
       if (btn) btn.textContent = overviewZoom > 1 ? `🔍 ${overviewZoom}x` : "🔍 Zoom";
     }
@@ -1370,18 +1367,12 @@
       }
 
       clearTimeout(retryTimer);
-      if (!isRetry) {
-        retryCount = 0;
-        hasRenderedFirstFrame = false;
-      }
+      if (!isRetry) retryCount = 0;
 
       loadedSessionId = sId;
-      setStreamStatus(isRetry ? `⚡ Đang nối lại luồng (${retryCount}/3)…` : "⚡ Đang mở video…");
-
       video.pause();
       video.playbackRate = currentPlaybackSpeed;
       video.src = `/api/stream?sessionId=${encodeURIComponent(sId)}${isRetry ? `&r=${retryCount}` : ""}`;
-      video.load();
       video.play().catch(() => {});
     }
 
@@ -1426,14 +1417,13 @@
 
       const sId = currentSession?.sessionId || currentSession?.id || "";
       if (sId) startSessionStream(sId, false);
-      drawBothCanvases();
+      drawWaybillCanvas();
     }
 
     function loadCurrentSessionVideo() {
       stopCurrentVideoStream();
       setOverviewZoom(1);
       setWaybillZoom(1);
-      setStreamStatus("");
       setText("timeDisplay", "00:00 / 00:00");
       if ($("seekSlider")) $("seekSlider").value = "0";
 
@@ -1445,7 +1435,6 @@
         return;
       }
 
-      // Luôn ưu tiên mở chế độ 2 màn hình (hoặc góc đang chọn), không tự kẹt ở P2P
       if (currentViewMode === "p2p") currentViewMode = "dual";
       applyViewMode(currentViewMode);
     }
@@ -1525,7 +1514,6 @@
         applyViewMode(currentViewMode === "waybill" ? "dual" : "waybill");
       });
 
-      // Zoom cho cả CAM 1 (Toàn cảnh) và CAM 2 (Vận đơn)
       $("btnZoomOverview")?.addEventListener("click", () => {
         setOverviewZoom(overviewZoom > 1 ? 1 : 2.0);
       });
@@ -1542,23 +1530,15 @@
         setWaybillZoom(waybillZoom + (e.deltaY < 0 ? 0.25 : -0.25));
       }, { passive: false });
 
-      // SỰ KIỆN ĐỒNG BỘ VIDEO GỐC & AUTO-RETRY THÔNG MINH (KHÔNG BAO GIỜ NHẢY SANG MÀN HÌNH ĐEN)
       const video = $("mainVideo");
       const slider = $("seekSlider");
 
       if (video) {
-        video.addEventListener("loadeddata", () => {
-          setStreamStatus("");
-          drawBothCanvases();
-        });
-
-        video.addEventListener("canplay", () => {
-          setStreamStatus("");
-          drawBothCanvases();
-        });
+        video.addEventListener("loadedmetadata", drawWaybillCanvas);
+        video.addEventListener("loadeddata", drawWaybillCanvas);
+        video.addEventListener("canplay", drawWaybillCanvas);
 
         video.addEventListener("playing", () => {
-          setStreamStatus("");
           retryCount = 0;
           setText("btnPlayPause", "⏸️ Dừng");
           startSyncLoop();
@@ -1567,19 +1547,13 @@
         video.addEventListener("pause", () => {
           setText("btnPlayPause", "▶️ Phát");
           stopSyncLoop();
-          drawBothCanvases();
+          drawWaybillCanvas();
         });
 
-        video.addEventListener("seeked", () => {
-          setStreamStatus("");
-          drawBothCanvases();
-        });
+        video.addEventListener("seeked", drawWaybillCanvas);
 
         video.addEventListener("timeupdate", () => {
-          if (video.readyState >= 2) {
-            setStreamStatus("");
-            drawBothCanvases();
-          }
+          drawWaybillCanvas();
           const cur = video.currentTime || 0;
           const dur = video.duration || currentSession?.durationSec || 0;
           if (slider && dur > 0) slider.value = String((cur / dur) * 100);
@@ -1590,14 +1564,10 @@
           const sId = currentSession?.sessionId || currentSession?.id;
           if (!sId || currentViewMode === "p2p") return;
 
-          // Tự động thử kết nối lại tối đa 3 lần ngay trên giao diện 2 màn hình thay vì văng lỗi
           if (retryCount < 3) {
             retryCount++;
-            setStreamStatus(`⏳ Máy cửa hàng đang chuẩn bị video, tự động nối lại (${retryCount}/3)…`);
             clearTimeout(retryTimer);
-            retryTimer = setTimeout(() => startSessionStream(sId, true), 2000);
-          } else {
-            setStreamStatus("⚠️ Luồng video phản hồi chậm. Bấm ▶️ Phát để thử lại.");
+            retryTimer = setTimeout(() => startSessionStream(sId, true), 1500);
           }
         });
       }
@@ -1625,7 +1595,7 @@
         const dur = video?.duration || currentSession?.durationSec || 0;
         if (video && dur > 0) {
           video.currentTime = (Number(slider.value) / 100) * dur;
-          drawBothCanvases();
+          drawWaybillCanvas();
         }
       });
 
@@ -1640,7 +1610,7 @@
 
       async function checkStatus() {
         try {
-          const st = await api("status", { timeoutMs: 5000 });
+          const st = await api("status", { timeoutMs: 4500 });
           const ok = st.ascam === "connected";
           const dot = $("statusDot");
           if (dot) dot.className = "status-dot " + (ok ? "online" : "offline");
