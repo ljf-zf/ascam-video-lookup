@@ -55,6 +55,7 @@
       font-weight: 600;
       border-radius: 10px;
       color: var(--text);
+      white-space: nowrap;
     }
 
     button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -273,20 +274,11 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      position: relative;
     }
     .order-item:hover { border-color: var(--primary); background: #f8fbff; }
     .order-item.active {
       border-color: var(--primary);
       background: var(--primary-soft);
-    }
-    .order-item.prewarmed::after {
-      content: "⚡";
-      font-size: 10px;
-      position: absolute;
-      top: 6px;
-      right: 8px;
-      opacity: 0.7;
     }
 
     .order-item-main {
@@ -507,66 +499,30 @@
       pointer-events: none;
     }
 
-    .buffer-pill {
-      position: absolute;
-      bottom: 12px;
-      left: 12px;
-      z-index: 15;
-      background: rgba(37, 99, 235, 0.92);
-      color: #fff;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 600;
-      pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    }
-
-    .cam-expand-btn {
+    .cam-actions-right {
       position: absolute;
       top: 10px;
       right: 10px;
       z-index: 10;
-      background: rgba(15, 23, 42, 0.72);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cam-expand-btn {
+      background: rgba(15, 23, 42, 0.76);
+      backdrop-filter: blur(6px);
       color: #fff;
       border: 1px solid rgba(255,255,255,0.2);
       padding: 4px 9px;
       border-radius: 8px;
       font-size: 11px;
+      white-space: nowrap;
     }
     .cam-expand-btn:hover { background: var(--primary); border-color: var(--primary); }
 
-    /* Màn 1 (Trái): DUAL-SLOT VIDEO ENGINE (videoA + videoB) */
-    .overview-viewport {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #000;
-    }
-
-    .cam-video {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 200%;
-      object-fit: fill;
-      display: block;
-      background: #000;
-    }
-    .cam-video.active-slot {
-      opacity: 1;
-      z-index: 2;
-    }
-    .cam-video.standby-slot {
-      opacity: 0;
-      z-index: 1;
-      pointer-events: none;
-    }
-
-    /* Màn 2 (Phải): Canvas vẽ trực tiếp 50% nửa dưới (Mã QR Vận đơn) */
-    .waybill-viewport {
+    /* Cả CAM 1 và CAM 2 đều dùng chung kiến trúc GPU Canvas siêu mượt */
+    .canvas-viewport {
       position: relative;
       width: 100%;
       height: 100%;
@@ -578,13 +534,44 @@
       background: #000;
     }
 
-    #waybillCanvas {
+    .render-canvas {
+      position: relative;
+      z-index: 2;
       width: 100%;
       height: 100%;
       object-fit: fill;
       display: block;
       transition: transform 0.12s ease-out;
       transform-origin: center center;
+    }
+
+    /* Bộ giải mã gốc nằm trong khung nhìn để Chrome cấp 100% phần cứng GPU nhưng không gây giật layout */
+    #mainVideo {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 2px;
+      height: 2px;
+      opacity: 0.01;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .stream-status-pill {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 15;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #fff;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      pointer-events: none;
+      white-space: nowrap;
     }
 
     /* Khung P2P / CDN Nhanh (1A) */
@@ -769,14 +756,14 @@
       </div>
     </aside>
 
-    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH & CDN/P2P (70%) -->
+    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH ĐỒNG BỘ GPU CANVAS (70%) -->
     <section class="main-col">
 
       <!-- Trạng thái chờ khi chưa chọn đơn -->
       <div id="emptyState">
-        <div style="font-size:42px">⚡</div>
-        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Chọn hoặc lướt chuột vào đơn hàng để phát tức thì</h2>
-        <p style="font-size:13px;max-width:440px">Công nghệ Dual-Slot Video tự động giải mã trước luồng video ngay khi bạn gõ mã hoặc di chuột qua kết quả.</p>
+        <div style="font-size:42px">🎥</div>
+        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Chọn hoặc tìm đơn hàng để xem ngay</h2>
+        <p style="font-size:13px;max-width:440px">Cả 2 màn hình Toàn cảnh và Vận đơn đều được đồng bộ qua bộ vẽ phần cứng GPU Canvas mượt mà.</p>
       </div>
 
       <!-- Khung làm việc khi đã mở đơn -->
@@ -808,33 +795,36 @@
         <!-- Vùng phát Video -->
         <div class="stage-container">
 
-          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG (TRÁI = TOÀN CẢNH | PHẢI = VẬN ĐƠN QR) -->
+          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG CÙNG VẼ BẰNG GPU CANVAS -->
           <div id="dualStage">
-            <!-- Màn 1: Camera Toàn Cảnh (2 Đầu Đọc Video Song Song: videoA + videoB) -->
+            <!-- Màn 1: Camera Toàn Cảnh (Nửa trên - Vẽ bằng GPU Canvas giống hệt CAM 2) -->
             <div id="camBoxOverview" class="cam-card">
               <span class="cam-badge">⛶ CAM 1 · TOÀN CẢNH (BÀN ĐÓNG)</span>
-              <button type="button" id="btnExpandOverview" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Toàn cảnh">⤢ Phóng to</button>
-              <span id="bufferBadge" class="buffer-pill hidden">⚡ Đang mở luồng…</span>
-              <div class="overview-viewport">
-                <video id="videoA" class="cam-video active-slot" playsinline preload="auto"></video>
-                <video id="videoB" class="cam-video standby-slot" playsinline preload="auto" muted></video>
+              <div class="cam-actions-right">
+                <button type="button" id="btnZoomOverview" class="cam-expand-btn" title="Phóng to cận cảnh bàn đóng gói">🔍 Zoom</button>
+                <button type="button" id="btnExpandOverview" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Toàn cảnh">⤢ Phóng to</button>
+              </div>
+              <span id="streamStatusPill" class="stream-status-pill hidden">⚡ Đang kết nối video…</span>
+              <div class="canvas-viewport" id="overviewViewport" title="Lăn chuột để Zoom bàn đóng gói">
+                <video id="mainVideo" playsinline preload="auto"></video>
+                <canvas id="overviewCanvas" class="render-canvas"></canvas>
               </div>
             </div>
 
-            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Đồng bộ GPU thời gian thực) -->
+            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Vẽ bằng GPU Canvas) -->
             <div id="camBoxWaybill" class="cam-card">
               <span class="cam-badge">📄 CAM 2 · VẬN ĐƠN (SOI MÃ QR)</span>
-              <div style="position:absolute;top:10px;right:10px;z-index:10;display:flex;gap:4px">
+              <div class="cam-actions-right">
                 <button type="button" id="btnZoomWaybill" class="cam-expand-btn" title="Phóng to cận cảnh mã QR">🔍 Zoom QR</button>
                 <button type="button" id="btnExpandWaybill" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Vận đơn">⤢ Phóng to</button>
               </div>
-              <div class="waybill-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
-                <canvas id="waybillCanvas"></canvas>
+              <div class="canvas-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
+                <canvas id="waybillCanvas" class="render-canvas"></canvas>
               </div>
             </div>
           </div>
 
-          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL -->
+          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL (Chỉ mở khi người dùng chủ động bấm nút ⚡ CDN / P2P) -->
           <div id="p2pStage" class="hidden">
             <iframe id="p2pFrame" allow="autoplay; fullscreen"></iframe>
           </div>
@@ -854,7 +844,7 @@
               <button type="button" id="viewModeDual" class="mode-btn active" title="Xem song song 2 màn hình Toàn cảnh & Vận đơn (2B)">🖥️ 2 Màn hình</button>
               <button type="button" id="viewModeOverview" class="mode-btn" title="Chỉ xem góc Toàn cảnh">⛶ Toàn cảnh</button>
               <button type="button" id="viewModeWaybill" class="mode-btn" title="Chỉ xem góc Vận đơn QR">📄 Vận đơn</button>
-              <button type="button" id="viewModeP2P" class="mode-btn" title="Phát tức thì qua luồng CDN / P2P Share (1A)">⚡ CDN / P2P</button>
+              <button type="button" id="viewModeP2P" class="mode-btn" title="Phát qua giao diện Share P2P của ASCAM">⚡ CDN / P2P</button>
             </div>
           </div>
 
@@ -871,33 +861,25 @@
     const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
     const show = (id, vis = true) => { const el = $(id); if (el) el.classList.toggle("hidden", !vis); };
 
-    const KEY_HISTORY = "avl-history-v3";
-    const KEY_SAVED = "avl-saved-v3";
-    const KEY_PREF_MODE = "avl-pref-mode-v3";
+    const KEY_HISTORY = "avl-history-v4";
+    const KEY_SAVED = "avl-saved-v4";
 
     let currentOrder = null;
     let currentSessions = [];
     let currentSession = null;
-    let currentViewMode = localStorage.getItem(KEY_PREF_MODE) || "dual";
+    let loadedSessionId = null;
+    let currentViewMode = "dual";
+    let overviewZoom = 1;
     let waybillZoom = 1;
     let currentPlaybackSpeed = 1;
     let vfcId = null;
     let rafId = null;
-    let bufferTimer = null;
+    let retryTimer = null;
+    let retryCount = 0;
+    let hasRenderedFirstFrame = false;
     let toastTimer = null;
-    let canvasCtx = null;
-
-    // DUAL-SLOT VIDEO ENGINE STATE (videoA & videoB)
-    let activeSlotId = "videoA";
-    const predictiveCache = new Map();
-
-    function getActiveVideo() {
-      return $(activeSlotId);
-    }
-
-    function getStandbyVideo() {
-      return $(activeSlotId === "videoA" ? "videoB" : "videoA");
-    }
+    let ovCtx = null;
+    let wbCtx = null;
 
     function esc(s = "") {
       return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -923,20 +905,22 @@
       box.classList.toggle("error", isErr);
       box.classList.remove("hidden");
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => box.classList.add("hidden"), 2500);
+      toastTimer = setTimeout(() => box.classList.add("hidden"), 2800);
     }
 
-    function setBuffering(isBuffering) {
-      clearTimeout(bufferTimer);
-      if (!isBuffering) {
-        show("bufferBadge", false);
-        return;
+    function setStreamStatus(text = "") {
+      const pill = $("streamStatusPill");
+      if (!pill) return;
+      if (!text) {
+        pill.classList.add("hidden");
+      } else {
+        pill.textContent = text;
+        pill.classList.remove("hidden");
       }
-      bufferTimer = setTimeout(() => show("bufferBadge", true), 350);
     }
 
     async function api(path, opts = {}) {
-      const { timeoutMs = 16000, ...rest } = opts;
+      const { timeoutMs = 20000, ...rest } = opts;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -954,42 +938,14 @@
         }
         if (!res.ok) throw new Error(data.error || `Lỗi HTTP ${res.status}`);
         return data;
+      } catch (err) {
+        if (ctrl.signal.aborted) {
+          throw new Error("Máy chủ cửa hàng đang bận xử lý, vui lòng thử lại.");
+        }
+        throw err;
       } finally {
         clearTimeout(timer);
       }
-    }
-
-    // NẠP TRƯỚC VIDEO NGẦM VÀO ĐẦU ĐỌC DỰ PHÒNG (STANDBY VIDEO SLOT)
-    function extractSessionId(item) {
-      if (!item) return "";
-      if (item.sessionId || item.id) return String(item.sessionId || item.id);
-      if (Array.isArray(item.sessions) && item.sessions[0]) {
-        return String(item.sessions[0].sessionId || item.sessions[0].id || "");
-      }
-      return "";
-    }
-
-    function prewarmSessionStream(sessionId, triggerEl = null) {
-      const sId = String(sessionId || "");
-      if (!sId || !/^\d{6,30}$/.test(sId)) return;
-
-      const active = getActiveVideo();
-      const standby = getStandbyVideo();
-      if (!active || !standby) return;
-
-      // Nếu đã nạp trong đầu đọc chính hoặc đầu đọc dự phòng rồi thì không nạp lại
-      if (active.dataset.sid === sId || standby.dataset.sid === sId) {
-        if (triggerEl) triggerEl.classList.add("prewarmed");
-        return;
-      }
-
-      standby.pause();
-      standby.dataset.sid = sId;
-      standby.muted = true;
-      standby.preload = "auto";
-      standby.src = `/api/stream?sessionId=${encodeURIComponent(sId)}`;
-      standby.load();
-      if (triggerEl) triggerEl.classList.add("prewarmed");
     }
 
     function switchTab(tab) {
@@ -1027,7 +983,7 @@
     function addHistory(orderObj, sessObj) {
       const snap = makeSnapshot(orderObj, sessObj);
       if (!snap.code) return;
-      const next = [snap, ...getList(KEY_HISTORY).filter(x => x.code !== snap.code)].slice(0, 25);
+      const next = [snap, ...getList(KEY_HISTORY).filter(x => x.code !== snap.code)].slice(0, 30);
       try { localStorage.setItem(KEY_HISTORY, JSON.stringify(next)); } catch {}
       renderSideLists();
     }
@@ -1059,18 +1015,6 @@
       btn.classList.toggle("saved", saved);
     }
 
-    function bindHoverPrewarm(container, items) {
-      if (!container) return;
-      container.querySelectorAll("[data-idx]").forEach(btn => {
-        const item = items[Number(btn.dataset.idx)];
-        const sId = extractSessionId(item);
-        const warm = () => { if (sId) prewarmSessionStream(sId, btn); };
-        btn.addEventListener("mouseenter", warm, { passive: true });
-        btn.addEventListener("touchstart", warm, { passive: true });
-        btn.addEventListener("focus", warm, { passive: true });
-      });
-    }
-
     function renderSideLists() {
       const hist = getList(KEY_HISTORY);
       const saved = getList(KEY_SAVED);
@@ -1085,7 +1029,7 @@
               <span class="order-item-main">
                 <b class="order-item-code">${esc(item.code)}</b>
                 <span class="order-item-sub">
-                  <span>${esc(item.station || "—")}</span>
+                  <span>Bàn: ${esc(item.station || "—")}</span>
                   <span>${fmtDate(item.packedAt || item.at)}</span>
                 </span>
               </span>
@@ -1097,7 +1041,6 @@
       const hEl = $("listHistory");
       if (hEl) {
         hEl.innerHTML = renderItems(hist, "Chưa có lịch sử tra cứu.");
-        bindHoverPrewarm(hEl, hist);
         hEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = hist[Number(b.dataset.idx)];
@@ -1109,7 +1052,6 @@
       const sEl = $("listSaved");
       if (sEl) {
         sEl.innerHTML = renderItems(saved, "Chưa có đơn nào được đánh dấu.");
-        bindHoverPrewarm(sEl, saved);
         sEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = saved[Number(b.dataset.idx)];
@@ -1117,60 +1059,21 @@
           });
         });
       }
-
-      // Tự động nạp sẵn đơn đầu tiên trong Lịch sử khi mới vào trang
-      if (!currentSession && hist[0]?.sessionId) {
-        prewarmSessionStream(hist[0].sessionId);
-      }
     }
 
-    // TÌM KIẾM TIÊN ĐOÁN NGẦM KHI ĐANG GÕ + PHÁT NGAY KHI CLICK
+    // TÌM KIẾM ĐƠN HÀNG (KHÔNG GỌI STREAM NGẦM LÚC GÕ ĐỂ TRÁNH NGHẼN MẠCH CỬA HÀNG)
     let lastSearchResults = [];
-    let predictTimer = null;
-
-    function triggerPredictivePreload(rawVal) {
-      clearTimeout(predictTimer);
-      const q = (rawVal || "").trim();
-      if (q.length < 4) return;
-
-      // Kiểm tra nhanh trong Lịch sử & Đã lưu trước (0ms)
-      const qUp = q.toUpperCase();
-      const localPool = [...getList(KEY_HISTORY), ...getList(KEY_SAVED)];
-      const localHit = localPool.find(x => String(x.code || "").toUpperCase().endsWith(qUp) || String(x.code || "").toUpperCase().includes(qUp));
-      if (localHit?.sessionId) {
-        prewarmSessionStream(localHit.sessionId);
-      }
-
-      predictTimer = setTimeout(async () => {
-        try {
-          const data = await api(`search?q=${encodeURIComponent(q)}&fast=1`, { timeoutMs: 5000 });
-          const items = Array.isArray(data?.items) ? data.items : [];
-          if (items.length > 0) {
-            predictiveCache.set(qUp, data);
-            const firstSid = extractSessionId(items[0]);
-            if (firstSid) prewarmSessionStream(firstSid);
-          }
-        } catch {}
-      }, 220);
-    }
 
     async function doSearch(rawQuery) {
-      clearTimeout(predictTimer);
       const q = (rawQuery || "").trim();
       if (q.length < 4) return toast("Nhập ít nhất 4 ký tự cuối hoặc mã đơn đầy đủ.", true);
 
-      const qUp = q.toUpperCase();
       const btn = $("searchBtn");
       if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
       switchTab("results");
 
       try {
-        // Nếu bộ tiên đoán lúc gõ đã lấy xong kết quả -> Mở ngay trong 0ms!
-        let data = predictiveCache.get(qUp);
-        if (!data || !Array.isArray(data.items) || data.items.length === 0) {
-          data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 20000 });
-        }
-
+        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 22000 });
         const items = Array.isArray(data?.items) ? data.items : [];
         lastSearchResults = items;
         setText("badgeResults", items.length);
@@ -1195,8 +1098,6 @@
               }).join("")
             : `<div class="empty-box">Không tìm thấy đơn khớp "${esc(q)}" (đã quét ${data.scannedRecords || 0}/${data.totalRecords || 0} đơn).</div>`;
 
-          bindHoverPrewarm(listEl, items);
-
           listEl.querySelectorAll("[data-idx]").forEach(b => {
             b.addEventListener("click", () => {
               listEl.querySelectorAll(".order-item").forEach(x => x.classList.remove("active"));
@@ -1212,10 +1113,7 @@
           if (firstBtn) firstBtn.classList.add("active");
           openOrderInstant(items[0]);
         } else if (items.length > 1) {
-          // Tự động nạp trước ngay kết quả số 1 vào đầu đọc ngầm standbyVideo để người dùng bấm vào là phát tức thì
-          const topSid = extractSessionId(items[0]);
-          const firstBtn = listEl?.querySelector(".order-item");
-          if (topSid) prewarmSessionStream(topSid, firstBtn);
+          toast(`Tìm thấy ${items.length} đơn. Chọn đơn ở cột trái.`);
         }
       } catch (err) {
         toast(err.message || "Lỗi khi tìm kiếm.", true);
@@ -1224,6 +1122,7 @@
       }
     }
 
+    // MỞ ĐƠN HÀNG TỨC THÌ (KHÔNG GỌI THÊM /api/order KHI ĐÃ CÓ SESSION ID ĐỂ DỒN 100% BĂNG THÔNG CHO VIDEO)
     async function openOrderInstant(rawItem) {
       const order = rawItem?.order || rawItem?.data?.order || rawItem;
       const code = order?.orderCode || order?.OrderCode || order?.rawCode || order?.code || "";
@@ -1241,23 +1140,6 @@
         renderOrderHeader();
         renderSessionBar();
         loadCurrentSessionVideo();
-
-        if (!Array.isArray(order.sessions) && code) {
-          api("order?code=" + encodeURIComponent(code), { timeoutMs: 7000 })
-            .then(full => {
-              const fullOrder = full?.order || full?.data?.order || full;
-              if (fullOrder && (fullOrder.orderCode || fullOrder.OrderCode) === code) {
-                currentOrder = fullOrder;
-                if (Array.isArray(fullOrder.sessions) && fullOrder.sessions.length > 0) {
-                  currentSessions = fullOrder.sessions;
-                  currentSession = currentSessions[0];
-                  renderOrderHeader();
-                  renderSessionBar();
-                }
-              }
-            })
-            .catch(() => {});
-        }
         return;
       }
 
@@ -1320,48 +1202,63 @@
         }).join("");
 
       bar.querySelectorAll("[data-sess-idx]").forEach(btn => {
-        const sess = currentSessions[Number(btn.dataset.sessIdx)];
-        const sId = extractSessionId(sess);
-        btn.addEventListener("mouseenter", () => { if (sId) prewarmSessionStream(sId); }, { passive: true });
         btn.addEventListener("click", () => {
           bar.querySelectorAll(".sess-btn").forEach(x => x.classList.remove("active"));
           btn.classList.add("active");
-          currentSession = sess;
+          currentSession = currentSessions[Number(btn.dataset.sessIdx)];
           renderOrderHeader();
           loadCurrentSessionVideo();
         });
       });
     }
 
-    // ĐỒNG BỘ GPU CHO CAM 2 TỪ ĐẦU ĐỌC VIDEO ĐANG ACTIVE
-    function drawWaybillCanvas() {
-      const video = getActiveVideo();
-      const canvas = $("waybillCanvas");
-      if (!video || !canvas || video.readyState < 2) return;
+    // ĐỘNG CƠ VẼ KÉP GPU CANVAS: VẼ ĐỒNG THỜI CAM 1 (NỬA TRÊN) & CAM 2 (NỬA DƯỚI) TRƠN TRU NHƯ NHAU
+    function drawBothCanvases() {
+      const video = $("mainVideo");
+      const ovCanvas = $("overviewCanvas");
+      const wbCanvas = $("waybillCanvas");
+      if (!video || !ovCanvas || !wbCanvas || video.readyState < 2) return;
+
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (!vw || !vh) return;
 
       const halfH = Math.floor(vh / 2);
-      if (canvas.width !== vw || canvas.height !== halfH) {
-        canvas.width = vw;
-        canvas.height = halfH;
-        canvasCtx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+
+      // Khởi tạo kích thước và ngữ cảnh GPU desynchronized cho cả 2 màn hình
+      if (ovCanvas.width !== vw || ovCanvas.height !== halfH) {
+        ovCanvas.width = vw;
+        ovCanvas.height = halfH;
+        ovCtx = ovCanvas.getContext("2d", { alpha: false, desynchronized: true });
       }
-      if (!canvasCtx) {
-        canvasCtx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+      if (!ovCtx) ovCtx = ovCanvas.getContext("2d", { alpha: false, desynchronized: true });
+
+      if (wbCanvas.width !== vw || wbCanvas.height !== halfH) {
+        wbCanvas.width = vw;
+        wbCanvas.height = halfH;
+        wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
       }
-      if (canvasCtx) {
-        canvasCtx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
+      if (!wbCtx) wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
+
+      // Vẽ CAM 1 (Nửa trên: 0 -> halfH)
+      if (ovCtx) {
+        ovCtx.drawImage(video, 0, 0, vw, halfH, 0, 0, vw, halfH);
+      }
+      // Vẽ CAM 2 (Nửa dưới: halfH -> vh)
+      if (wbCtx) {
+        wbCtx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
+      }
+
+      if (!hasRenderedFirstFrame) {
+        hasRenderedFirstFrame = true;
+        setStreamStatus("");
       }
     }
 
     function stopSyncLoop() {
-      const vA = $("videoA");
-      const vB = $("videoB");
-      if (vfcId) {
-        vA?.cancelVideoFrameCallback?.(vfcId);
-        vB?.cancelVideoFrameCallback?.(vfcId);
+      const video = $("mainVideo");
+      if (vfcId && video?.cancelVideoFrameCallback) {
+        video.cancelVideoFrameCallback(vfcId);
         vfcId = null;
       }
       if (rafId) {
@@ -1372,27 +1269,25 @@
 
     function startSyncLoop() {
       stopSyncLoop();
-      const video = getActiveVideo();
+      const video = $("mainVideo");
       if (!video) return;
 
       if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
         const onFrame = () => {
-          const cur = getActiveVideo();
-          drawWaybillCanvas();
-          if (cur && !cur.paused && !cur.ended) {
-            vfcId = cur.requestVideoFrameCallback(onFrame);
+          drawBothCanvases();
+          if (!video.paused && !video.ended) {
+            vfcId = video.requestVideoFrameCallback(onFrame);
           }
         };
         vfcId = video.requestVideoFrameCallback(onFrame);
       } else {
         let lastDraw = 0;
         const tick = now => {
-          const cur = getActiveVideo();
           if (now - lastDraw >= 33) {
-            drawWaybillCanvas();
+            drawBothCanvases();
             lastDraw = now;
           }
-          if (cur && !cur.paused && !cur.ended) {
+          if (!video.paused && !video.ended) {
             rafId = requestAnimationFrame(tick);
           }
         };
@@ -1426,7 +1321,7 @@
       const sessionId = session?.sessionId || session?.id;
       const res = await api("share", {
         method: "POST",
-        timeoutMs: 9000,
+        timeoutMs: 15000,
         body: JSON.stringify({ orderCode: code, sessionId, role: "overview", storage: "p2p" }),
       });
       if (res?.shareUrl) {
@@ -1436,85 +1331,73 @@
       throw new Error("Không lấy được link CDN/P2P.");
     }
 
+    function setOverviewZoom(z) {
+      overviewZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
+      const canvas = $("overviewCanvas");
+      if (canvas) canvas.style.transform = `scale(${overviewZoom})`;
+      const btn = $("btnZoomOverview");
+      if (btn) btn.textContent = overviewZoom > 1 ? `🔍 ${overviewZoom}x` : "🔍 Zoom";
+    }
+
     function setWaybillZoom(z) {
       waybillZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
       const canvas = $("waybillCanvas");
       if (canvas) canvas.style.transform = `scale(${waybillZoom})`;
       const btn = $("btnZoomWaybill");
-      if (btn) btn.textContent = waybillZoom > 1 ? `🔍 ${waybillZoom}x (Reset)` : "🔍 Zoom QR";
+      if (btn) btn.textContent = waybillZoom > 1 ? `🔍 ${waybillZoom}x` : "🔍 Zoom QR";
     }
 
-    // LẬT ĐẦU ĐỌC VIDEO TỨC THÌ (INSTANT SLOT SWAP 0.00 GIÂY)
-    function activateStreamForSession(sessionId) {
+    function stopCurrentVideoStream() {
+      clearTimeout(retryTimer);
+      stopSyncLoop();
+      const video = $("mainVideo");
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
+      loadedSessionId = null;
+    }
+
+    function startSessionStream(sessionId, isRetry = false) {
       const sId = String(sessionId || "");
-      if (!sId) return;
+      const video = $("mainVideo");
+      if (!sId || !video) return;
 
-      const active = getActiveVideo();
-      const standby = getStandbyVideo();
-      if (!active || !standby) return;
-
-      // Trường hợp 1: Đầu đọc chính đã chứa sẵn đúng phiên này
-      if (active.dataset.sid === sId && active.getAttribute("src")) {
-        active.muted = false;
-        active.playbackRate = currentPlaybackSpeed;
-        if (active.readyState >= 2) {
-          setBuffering(false);
-          drawWaybillCanvas();
-        }
-        if (active.paused) active.play().catch(() => {});
+      if (!isRetry && loadedSessionId === sId && video.getAttribute("src")) {
+        if (video.paused) video.play().catch(() => {});
         return;
       }
 
-      // Trường hợp 2: Đầu đọc ngầm (standby) đã nạp trước phiên này khi Hover / Search -> Lật mặt hiển thị ngay trong 0ms!
-      if (standby.dataset.sid === sId && standby.getAttribute("src")) {
-        stopSyncLoop();
-        active.pause();
-        active.muted = true;
-        active.classList.remove("active-slot");
-        active.classList.add("standby-slot");
-
-        standby.classList.remove("standby-slot");
-        standby.classList.add("active-slot");
-        activeSlotId = standby.id;
-
-        standby.muted = false;
-        standby.playbackRate = currentPlaybackSpeed;
-
-        if (standby.readyState >= 2) {
-          setBuffering(false);
-          drawWaybillCanvas();
-        } else {
-          setBuffering(true);
-        }
-
-        standby.play().catch(() => {});
-        startSyncLoop();
-        return;
+      clearTimeout(retryTimer);
+      if (!isRetry) {
+        retryCount = 0;
+        hasRenderedFirstFrame = false;
       }
 
-      // Trường hợp 3: Nạp mới trực tiếp vào đầu đọc chính
-      active.dataset.sid = sId;
-      active.muted = false;
-      active.playbackRate = currentPlaybackSpeed;
-      setBuffering(true);
-      active.src = `/api/stream?sessionId=${encodeURIComponent(sId)}`;
-      active.play().catch(() => {});
+      loadedSessionId = sId;
+      setStreamStatus(isRetry ? `⚡ Đang nối lại luồng (${retryCount}/3)…` : "⚡ Đang mở video…");
+
+      video.pause();
+      video.playbackRate = currentPlaybackSpeed;
+      video.src = `/api/stream?sessionId=${encodeURIComponent(sId)}${isRetry ? `&r=${retryCount}` : ""}`;
+      video.load();
+      video.play().catch(() => {});
     }
 
     async function applyViewMode(mode) {
       currentViewMode = mode;
-      try { localStorage.setItem(KEY_PREF_MODE, mode); } catch {}
 
       ["Dual", "Overview", "Waybill", "P2P"].forEach(k => {
         $(`viewMode${k}`)?.classList.toggle("active", k.toLowerCase() === mode);
       });
 
       const dualStage = $("dualStage");
-      const active = getActiveVideo();
+      const video = $("mainVideo");
       const frame = $("p2pFrame");
 
       if (mode === "p2p") {
-        if (active) active.pause();
+        if (video) video.pause();
         show("dualStage", false);
         show("html5Controls", false);
         show("p2pStage", true);
@@ -1542,13 +1425,18 @@
       setText("btnExpandWaybill", mode === "waybill" ? "⤡ 2 Màn hình" : "⤢ Phóng to");
 
       const sId = currentSession?.sessionId || currentSession?.id || "";
-      if (sId) activateStreamForSession(sId);
-      drawWaybillCanvas();
+      if (sId) startSessionStream(sId, false);
+      drawBothCanvases();
     }
 
     function loadCurrentSessionVideo() {
+      stopCurrentVideoStream();
+      setOverviewZoom(1);
       setWaybillZoom(1);
-      setBuffering(false);
+      setStreamStatus("");
+      setText("timeDisplay", "00:00 / 00:00");
+      if ($("seekSlider")) $("seekSlider").value = "0";
+
       const frame = $("p2pFrame");
       if (frame) frame.src = "about:blank";
 
@@ -1557,80 +1445,12 @@
         return;
       }
 
+      // Luôn ưu tiên mở chế độ 2 màn hình (hoặc góc đang chọn), không tự kẹt ở P2P
+      if (currentViewMode === "p2p") currentViewMode = "dual";
       applyViewMode(currentViewMode);
     }
 
-    function attachVideoListeners(videoEl) {
-      if (!videoEl) return;
-      const slider = $("seekSlider");
-
-      videoEl.addEventListener("loadeddata", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        drawWaybillCanvas();
-      });
-
-      videoEl.addEventListener("canplay", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        drawWaybillCanvas();
-      });
-
-      videoEl.addEventListener("canplaythrough", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-      });
-
-      videoEl.addEventListener("playing", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        setText("btnPlayPause", "⏸️ Dừng");
-        startSyncLoop();
-      });
-
-      videoEl.addEventListener("pause", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        setText("btnPlayPause", "▶️ Phát");
-        stopSyncLoop();
-        drawWaybillCanvas();
-      });
-
-      videoEl.addEventListener("seeked", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        drawWaybillCanvas();
-      });
-
-      videoEl.addEventListener("timeupdate", () => {
-        if (videoEl !== getActiveVideo()) return;
-        if (!videoEl.paused && videoEl.readyState >= 2) {
-          setBuffering(false);
-        }
-        const cur = videoEl.currentTime || 0;
-        const dur = videoEl.duration || currentSession?.durationSec || 0;
-        if (slider && dur > 0) slider.value = String((cur / dur) * 100);
-        setText("timeDisplay", `${fmtSec(cur)} / ${fmtSec(dur)}`);
-      });
-
-      videoEl.addEventListener("waiting", () => {
-        if (videoEl !== getActiveVideo()) return;
-        if (!videoEl.paused) setBuffering(true);
-      });
-
-      videoEl.addEventListener("error", () => {
-        if (videoEl !== getActiveVideo()) return;
-        setBuffering(false);
-        if (currentSession && currentViewMode !== "p2p") {
-          toast("Tự động chuyển sang luồng CDN / P2P…");
-          applyViewMode("p2p");
-        }
-      });
-    }
-
     document.addEventListener("DOMContentLoaded", async () => {
-      attachVideoListeners($("videoA"));
-      attachVideoListeners($("videoB"));
       renderSideLists();
 
       $("loginForm")?.addEventListener("submit", async e => {
@@ -1653,14 +1473,10 @@
       });
 
       $("btnLogout")?.addEventListener("click", async () => {
+        stopCurrentVideoStream();
         await api("logout", { method: "POST" }).catch(() => {});
         show("appScreen", false);
         show("loginScreen", true);
-      });
-
-      // Tiên đoán & nạp trước luồng video ngay khi đang gõ mã đơn
-      $("searchInput")?.addEventListener("input", e => {
-        triggerPredictivePreload(e.target.value);
       });
 
       $("searchForm")?.addEventListener("submit", e => {
@@ -1709,39 +1525,107 @@
         applyViewMode(currentViewMode === "waybill" ? "dual" : "waybill");
       });
 
+      // Zoom cho cả CAM 1 (Toàn cảnh) và CAM 2 (Vận đơn)
+      $("btnZoomOverview")?.addEventListener("click", () => {
+        setOverviewZoom(overviewZoom > 1 ? 1 : 2.0);
+      });
+      $("overviewViewport")?.addEventListener("wheel", e => {
+        e.preventDefault();
+        setOverviewZoom(overviewZoom + (e.deltaY < 0 ? 0.25 : -0.25));
+      }, { passive: false });
+
       $("btnZoomWaybill")?.addEventListener("click", () => {
         setWaybillZoom(waybillZoom > 1 ? 1 : 2.2);
       });
       $("waybillViewport")?.addEventListener("wheel", e => {
         e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.25 : -0.25;
-        setWaybillZoom(waybillZoom + delta);
+        setWaybillZoom(waybillZoom + (e.deltaY < 0 ? 0.25 : -0.25));
       }, { passive: false });
 
+      // SỰ KIỆN ĐỒNG BỘ VIDEO GỐC & AUTO-RETRY THÔNG MINH (KHÔNG BAO GIỜ NHẢY SANG MÀN HÌNH ĐEN)
+      const video = $("mainVideo");
+      const slider = $("seekSlider");
+
+      if (video) {
+        video.addEventListener("loadeddata", () => {
+          setStreamStatus("");
+          drawBothCanvases();
+        });
+
+        video.addEventListener("canplay", () => {
+          setStreamStatus("");
+          drawBothCanvases();
+        });
+
+        video.addEventListener("playing", () => {
+          setStreamStatus("");
+          retryCount = 0;
+          setText("btnPlayPause", "⏸️ Dừng");
+          startSyncLoop();
+        });
+
+        video.addEventListener("pause", () => {
+          setText("btnPlayPause", "▶️ Phát");
+          stopSyncLoop();
+          drawBothCanvases();
+        });
+
+        video.addEventListener("seeked", () => {
+          setStreamStatus("");
+          drawBothCanvases();
+        });
+
+        video.addEventListener("timeupdate", () => {
+          if (video.readyState >= 2) {
+            setStreamStatus("");
+            drawBothCanvases();
+          }
+          const cur = video.currentTime || 0;
+          const dur = video.duration || currentSession?.durationSec || 0;
+          if (slider && dur > 0) slider.value = String((cur / dur) * 100);
+          setText("timeDisplay", `${fmtSec(cur)} / ${fmtSec(dur)}`);
+        });
+
+        video.addEventListener("error", () => {
+          const sId = currentSession?.sessionId || currentSession?.id;
+          if (!sId || currentViewMode === "p2p") return;
+
+          // Tự động thử kết nối lại tối đa 3 lần ngay trên giao diện 2 màn hình thay vì văng lỗi
+          if (retryCount < 3) {
+            retryCount++;
+            setStreamStatus(`⏳ Máy cửa hàng đang chuẩn bị video, tự động nối lại (${retryCount}/3)…`);
+            clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => startSessionStream(sId, true), 2000);
+          } else {
+            setStreamStatus("⚠️ Luồng video phản hồi chậm. Bấm ▶️ Phát để thử lại.");
+          }
+        });
+      }
+
       $("btnPlayPause")?.addEventListener("click", () => {
-        const video = getActiveVideo();
         if (!video) return;
+        if (video.error && currentSession) {
+          retryCount = 0;
+          startSessionStream(currentSession.sessionId || currentSession.id, false);
+          return;
+        }
         if (video.paused) video.play().catch(() => {});
         else video.pause();
       });
 
       $("btnRew")?.addEventListener("click", () => {
-        const video = getActiveVideo();
         if (video) video.currentTime = Math.max(0, (video.currentTime || 0) - 5);
       });
 
       $("btnFwd")?.addEventListener("click", () => {
-        const video = getActiveVideo();
         if (video) video.currentTime = Math.min(video.duration || 9999, (video.currentTime || 0) + 5);
       });
 
-      const slider = $("seekSlider");
       slider?.addEventListener("input", () => {
-        const video = getActiveVideo();
         const dur = video?.duration || currentSession?.durationSec || 0;
         if (video && dur > 0) {
           video.currentTime = (Number(slider.value) / 100) * dur;
-          drawWaybillCanvas();
+          drawBothCanvases();
         }
       });
 
@@ -1750,14 +1634,13 @@
       $("btnSpeed")?.addEventListener("click", () => {
         speedIdx = (speedIdx + 1) % speeds.length;
         currentPlaybackSpeed = speeds[speedIdx];
-        const video = getActiveVideo();
         if (video) video.playbackRate = currentPlaybackSpeed;
         setText("btnSpeed", `${currentPlaybackSpeed}x`);
       });
 
       async function checkStatus() {
         try {
-          const st = await api("status", { timeoutMs: 4500 });
+          const st = await api("status", { timeoutMs: 5000 });
           const ok = st.ascam === "connected";
           const dot = $("statusDot");
           if (dot) dot.className = "status-dot " + (ok ? "online" : "offline");
