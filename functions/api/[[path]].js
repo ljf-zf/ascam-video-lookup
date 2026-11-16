@@ -1,11 +1,14 @@
 const COOKIE = "avl_session";
 const SESSION_SECONDS = 36000;
+const FIRST_CHUNK_BYTES = 1048576; // 1 MB cho khúc khởi động đầu tiên (~0.15s)
+const NEXT_CHUNK_BYTES = 2097152;  // 2 MB cho các khúc phát tiếp theo
 const enc = new TextEncoder();
 
-// Bộ nhớ đệm RAM & Chỉ mục đơn hàng trên Cloudflare Worker
+// Bộ nhớ đệm RAM trên Cloudflare Worker: Lưu thông tin đơn + Khúc 1MB đầu tiên của Video
 const memCache = globalThis.__avlCache || (globalThis.__avlCache = new Map());
 const orderIndex = globalThis.__avlOrderIndex || (globalThis.__avlOrderIndex = new Map());
-const warmedSessions = globalThis.__avlWarmed || (globalThis.__avlWarmed = new Set());
+const startupChunkCache = globalThis.__avlChunkCache || (globalThis.__avlChunkCache = new Map());
+const inflightPrewarms = globalThis.__avlInflight || (globalThis.__avlInflight = new Map());
 
 function getCached(key) {
   const entry = memCache.get(key);
@@ -17,15 +20,48 @@ function getCached(key) {
   return entry.val;
 }
 
-function setCached(key, val, ttlMs = 45000) {
-  if (memCache.size > 500) memCache.clear();
+function setCached(key, val, ttlMs = 60000) {
+  if (memCache.size > 400) memCache.clear();
   memCache.set(key, { val, exp: Date.now() + ttlMs });
+}
+
+function getStartupChunk(sessionId) {
+  const entry = startupChunkCache.get(String(sessionId));
+  if (!entry) return null;
+  if (Date.now() > entry.exp) {
+    startupChunkCache.delete(String(sessionId));
+    return null;
+  }
+  return entry;
+}
+
+function setStartupChunk(sessionId, buffer, status, headersObj) {
+  // Giới hạn tối đa 12 đơn trong RAM (~12MB) để luôn an toàn bộ nhớ Worker
+  if (startupChunkCache.size >= 12) {
+    const oldestKey = startupChunkCache.keys().next().value;
+    if (oldestKey) startupChunkCache.delete(oldestKey);
+  }
+  startupChunkCache.set(String(sessionId), {
+    buffer,
+    status,
+    headers: headersObj,
+    exp: Date.now() + 300000, // Giữ sẵn trong RAM 5 phút
+  });
+}
+
+function extractFirstSessionId(item) {
+  if (!item) return "";
+  if (item.sessionId || item.id) return String(item.sessionId || item.id);
+  if (Array.isArray(item.sessions) && item.sessions[0]) {
+    return String(item.sessions[0].sessionId || item.sessions[0].id || "");
+  }
+  return "";
 }
 
 function indexOrders(items) {
   if (!Array.isArray(items)) return;
   const now = Date.now();
-  if (orderIndex.size > 2000) orderIndex.clear();
+  if (orderIndex.size > 1500) orderIndex.clear();
   for (const item of items) {
     const code = String(item?.orderCode || item?.OrderCode || item?.rawCode || "").toUpperCase();
     if (code) {
@@ -163,12 +199,71 @@ async function asc(env, path, init = {}) {
       : { error: data.message || data.error || `ASCAM HTTP ${response.status}`, status: response.status };
   } catch (err) {
     if (ctrl.signal.aborted) {
-      return { error: "Kết nối ASCAM phản hồi chậm, vui lòng thử lại.", status: 504 };
+      return { error: "Máy chủ ASCAM phản hồi chậm, vui lòng thử lại.", status: 504 };
     }
     return { error: err.message || "Không thể kết nối tới ASCAM.", status: 502 };
   } finally {
     clearTimeout(timer);
   }
+}
+
+// NẠP TRƯỚC KHÚC 1MB ĐẦU TIÊN CỦA VIDEO VÀO RAM WORKER (CHỐNG TRÙNG LẶP REQUEST)
+async function warmStartupChunk(env, sessionId) {
+  const sId = String(sessionId || "");
+  if (!/^\d{6,30}$/.test(sId)) return null;
+
+  const existing = getStartupChunk(sId);
+  if (existing) return existing;
+
+  if (inflightPrewarms.has(sId)) {
+    return inflightPrewarms.get(sId);
+  }
+
+  const job = (async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const upstreamUrl = `${base(env)}/sessions/${encodeURIComponent(sId)}/video`;
+      const res = await fetch(upstreamUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
+          Accept: "video/mp4, video/*;q=0.9, */*;q=0.1",
+          Range: `bytes=0-${FIRST_CHUNK_BYTES - 1}`,
+        },
+        signal: ctrl.signal,
+        redirect: "follow",
+      });
+
+      if (!res.ok && res.status !== 206) {
+        try { await res.body?.cancel(); } catch {}
+        return null;
+      }
+
+      const len = Number(res.headers.get("Content-Length") || 0);
+      // Chỉ lưu vào RAM nếu máy cửa hàng trả đúng khúc cắt <= 1.5MB
+      if (len > 0 && len <= FIRST_CHUNK_BYTES * 1.5) {
+        const buf = await res.arrayBuffer();
+        const hdrs = {};
+        for (const k of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
+          if (res.headers.has(k)) hdrs[k] = res.headers.get(k);
+        }
+        setStartupChunk(sId, buf, res.status, hdrs);
+        return getStartupChunk(sId);
+      } else {
+        try { await res.body?.cancel(); } catch {}
+        return null;
+      }
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      inflightPrewarms.delete(sId);
+    }
+  })();
+
+  inflightPrewarms.set(sId, job);
+  return job;
 }
 
 const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(value);
@@ -180,41 +275,6 @@ function extractItems(data) {
   if (Array.isArray(data?.data?.items)) return data.data.items;
   if (Array.isArray(data?.orders)) return data.orders;
   return [];
-}
-
-function getSessionIdFromItem(item) {
-  if (!item) return "";
-  if (item.sessionId || item.id) return String(item.sessionId || item.id);
-  if (Array.isArray(item.sessions) && item.sessions[0]) {
-    return String(item.sessions[0].sessionId || item.sessions[0].id || "");
-  }
-  return "";
-}
-
-// Đánh thức trước 64KB đầu tiên của file video trên máy cửa hàng ngay khi tìm thấy đơn
-async function prewarmVideoOnStorePC(env, sessionId) {
-  const sId = String(sessionId || "");
-  if (!safeSession(sId) || warmedSessions.has(sId)) return;
-  if (warmedSessions.size > 300) warmedSessions.clear();
-  warmedSessions.add(sId);
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const res = await fetch(`${base(env)}/sessions/${encodeURIComponent(sId)}/video`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
-        Range: "bytes=0-65535",
-      },
-      signal: ctrl.signal,
-    });
-    try { await res.body?.cancel(); } catch {}
-  } catch {
-    warmedSessions.delete(sId);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function normalizeRole(role) {
@@ -234,10 +294,6 @@ function isLinkValid(link) {
 
 export async function onRequest(context) {
   const { request, env } = context;
-  const bg = promise => {
-    try { context.waitUntil?.(promise); } catch {}
-  };
-
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/?/, "");
   const method = request.method.toUpperCase();
@@ -284,32 +340,16 @@ export async function onRequest(context) {
   }
 
   try {
-    // 0. LẤY NHANH 25 ĐƠN MỚI NHẤT KHI VỪA MỞ WEB & ĐÁNH THỨC SẴN VIDEO
-    if (path === "recent" && method === "GET") {
-      const cachedRecent = getCached("recent:list");
-      if (cachedRecent) return json(cachedRecent);
-
-      const res = await asc(env, `/orders?${new URLSearchParams({ page: "1", pageSize: "25" })}`, { timeoutMs: 6000 });
-      if (res.error) return json({ items: [] });
-
-      const rawItems = extractItems(res.data);
-      indexOrders(rawItems);
-      const cleanItems = rawItems.map(sanitizeOrderPayload);
-
-      // Đánh thức ngầm 2 đơn vừa đóng gói mới nhất
-      for (const item of cleanItems.slice(0, 2)) {
-        if (item.status === "completed") {
-          const sId = getSessionIdFromItem(item);
-          if (sId) bg(prewarmVideoOnStorePC(env, sId));
-        }
+    // 0. ENDPOINT NẠP TRƯỚC 1MB KHỞI ĐỘNG VÀO RAM WORKER KHI DI CHUỘT
+    if (path === "prewarm" && method === "GET") {
+      const sId = url.searchParams.get("sessionId") || "";
+      if (safeSession(sId)) {
+        context.waitUntil?.(warmStartupChunk(env, sId));
       }
-
-      const payload = { items: cleanItems, total: cleanItems.length };
-      setCached("recent:list", payload, 15000);
-      return json(payload);
+      return json({ ok: true });
     }
 
-    // 1. TÌM KIẾM TỨC THÌ & ĐÁNH THỨC LUỒNG VIDEO NGAY TRONG LÚC TRẢ KẾT QUẢ
+    // 1. TÌM KIẾM ĐƠN HÀNG + TỰ ĐỘNG KÉO SẴN 1MB VIDEO ĐẦU TIÊN VÀO RAM WORKER
     if (path === "search" && method === "GET") {
       const query = (url.searchParams.get("q") || "").trim();
       if (query.length < 4 || query.length > 80) {
@@ -320,42 +360,40 @@ export async function onRequest(context) {
       const cacheKey = `search:${qUpper}`;
       const cachedSearch = getCached(cacheKey);
       if (cachedSearch) {
-        const topSid = getSessionIdFromItem(cachedSearch.items?.[0]);
-        if (topSid) bg(prewarmVideoOnStorePC(env, topSid));
+        const topSid = extractFirstSessionId(cachedSearch.items?.[0]);
+        if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
         return json(cachedSearch);
       }
 
-      // Nhập mã đầy đủ (>= 10 ký tự) -> Lấy trực tiếp đơn hàng
       if (query.length >= 10 && safeCode(query)) {
         const ramHit = orderIndex.get(qUpper);
         if (ramHit && Date.now() - ramHit.at < 300000) {
-          const sId = getSessionIdFromItem(ramHit.item);
-          if (sId) bg(prewarmVideoOnStorePC(env, sId));
+          const topSid = extractFirstSessionId(ramHit.item);
+          if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
           return json({ items: [ramHit.item], total: 1, scannedRecords: 1, totalRecords: 1 });
         }
-
         const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 5500 });
         if (!direct.error && direct.data && (direct.data.orderCode || direct.data.OrderCode || direct.data.id)) {
           const clean = sanitizeOrderPayload(direct.data);
           indexOrders([clean]);
           setCached(`order:${qUpper}`, clean, 120000);
-          const sId = getSessionIdFromItem(clean);
-          if (sId) bg(prewarmVideoOnStorePC(env, sId));
           const payload = { items: [clean], total: 1, scannedRecords: 1, totalRecords: 1 };
           setCached(cacheKey, payload, 60000);
+          // Kéo sẵn ngay 1MB video đầu tiên vào RAM trong lúc trả kết quả tìm kiếm về trình duyệt!
+          const topSid = extractFirstSessionId(clean);
+          if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
           return json(payload);
         }
       }
 
       const ramMatched = searchInRamIndex(query);
 
-      // Tìm trên 80 đơn mới nhất trước
       const fastPageSize = 80;
       const first = await asc(env, `/orders?${new URLSearchParams({ q: query, search: query, page: "1", pageSize: String(fastPageSize) })}`, { timeoutMs: 6500 });
       if (first.error) {
         if (ramMatched.length > 0) {
-          const sId = getSessionIdFromItem(ramMatched[0]);
-          if (sId) bg(prewarmVideoOnStorePC(env, sId));
+          const topSid = extractFirstSessionId(ramMatched[0]);
+          if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
           return json({ items: ramMatched, total: ramMatched.length, scannedRecords: orderIndex.size, totalRecords: orderIndex.size });
         }
         return json({ error: first.error }, first.status);
@@ -374,7 +412,6 @@ export async function onRequest(context) {
       let matched = [...firstItems.filter(matchFn), ...ramMatched];
       let scannedRecords = firstItems.length;
 
-      // Quét mở rộng nếu tìm 4 số cuối chưa thấy ở trang 1
       if (matched.length === 0 && totalRecords > firstItems.length) {
         const scanPageSize = 200;
         const actualPageSize = Math.max(firstItems.length, 10);
@@ -413,19 +450,18 @@ export async function onRequest(context) {
         }
       }
 
-      // Đánh thức ngay lập tức luồng video của 2 kết quả đầu tiên trên máy cửa hàng
-      for (const item of uniqueItems.slice(0, 2)) {
-        const sId = getSessionIdFromItem(item);
-        if (sId) bg(prewarmVideoOnStorePC(env, sId));
-      }
-
       const responsePayload = {
         items: uniqueItems,
         total: uniqueItems.length,
         scannedRecords: Math.min(totalRecords, scannedRecords),
         totalRecords,
       };
-      if (uniqueItems.length > 0) setCached(cacheKey, responsePayload, 45000);
+      if (uniqueItems.length > 0) {
+        setCached(cacheKey, responsePayload, 45000);
+        // Nạp trước ngay 1MB đầu tiên của kết quả số 1 vào RAM Worker
+        const topSid = extractFirstSessionId(uniqueItems[0]);
+        if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
+      }
       return json(responsePayload);
     }
 
@@ -436,19 +472,15 @@ export async function onRequest(context) {
 
       const cacheKey = `order:${code.toUpperCase()}`;
       const cachedOrder = getCached(cacheKey);
-      if (cachedOrder) {
-        const sId = getSessionIdFromItem(cachedOrder);
-        if (sId) bg(prewarmVideoOnStorePC(env, sId));
-        return json(cachedOrder);
-      }
+      if (cachedOrder) return json(cachedOrder);
 
       const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 6500 });
       if (result.error) return json({ error: result.error }, result.status);
       const clean = sanitizeOrderPayload(result.data);
       indexOrders([clean]);
       setCached(cacheKey, clean, 120000);
-      const sId = getSessionIdFromItem(clean);
-      if (sId) bg(prewarmVideoOnStorePC(env, sId));
+      const topSid = extractFirstSessionId(clean);
+      if (topSid) context.waitUntil?.(warmStartupChunk(env, topSid));
       return json(clean);
     }
 
@@ -506,7 +538,7 @@ export async function onRequest(context) {
       });
     }
 
-    // 5. LUỒNG VIDEO TRỰC TIẾP (/sessions/{id}/video) & ĐÁNH THỨC NHANH (?warm=1)
+    // 5. STREAM VIDEO SIÊU TỐC: CẮT KHÚC BYTE-RANGE (1MB/2MB) & TRẢ TỨC THÌ TỪ RAM WORKER
     if ((path === "stream" || path === "download") && method === "GET") {
       if (url.searchParams.has("camId") || url.searchParams.has("cameraId")) {
         return json({ error: "Chặn tham số camId để bảo vệ ASCAM.", code: "CAMID_BLOCKED" }, 410);
@@ -514,20 +546,67 @@ export async function onRequest(context) {
       const sessionId = url.searchParams.get("sessionId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
 
-      // Nếu trình duyệt gửi tín hiệu đánh thức khi lướt chuột (?warm=1), kích hoạt ngầm và trả về ngay lập tức
-      if (url.searchParams.get("warm") === "1") {
-        bg(prewarmVideoOnStorePC(env, sessionId));
-        return new Response(null, { status: 204 });
+      const rawRange = request.headers.get("Range") || "";
+      const isStream = path === "stream";
+
+      // Kiểm tra nếu trình duyệt đang xin khúc bắt đầu từ byte 0 (bytes=0-) và đã có sẵn trong RAM Worker -> Trả về trong 1ms!
+      if (isStream && (!rawRange || rawRange === "bytes=0-" || rawRange === `bytes=0-${FIRST_CHUNK_BYTES - 1}`)) {
+        let cachedChunk = getStartupChunk(sessionId);
+        if (!cachedChunk && inflightPrewarms.has(sessionId)) {
+          cachedChunk = await inflightPrewarms.get(sessionId);
+        }
+        if (cachedChunk) {
+          const ramHeaders = new Headers(cachedChunk.headers);
+          if (!ramHeaders.has("Content-Type")) ramHeaders.set("Content-Type", "video/mp4");
+          if (!ramHeaders.has("Accept-Ranges")) ramHeaders.set("Accept-Ranges", "bytes");
+          ramHeaders.set("Cache-Control", "private, max-age=86400");
+          ramHeaders.set("X-AVL-Startup-Cache", "HIT");
+          return new Response(cachedChunk.buffer, { status: cachedChunk.status, headers: ramHeaders });
+        }
+      }
+
+      // CẮT KHÚC RANGE THÔNG MINH: Không để bytes=0- mở không giới hạn làm kẹt đường truyền máy cửa hàng!
+      let effectiveRange = rawRange;
+      let isRequestingStartupChunk = false;
+
+      if (isStream) {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(rawRange);
+        if (!rawRange) {
+          effectiveRange = `bytes=0-${FIRST_CHUNK_BYTES - 1}`;
+          isRequestingStartupChunk = true;
+        } else if (match) {
+          const start = Number(match[1]);
+          const endStr = match[2];
+          if (!endStr) {
+            if (start === 0) {
+              effectiveRange = `bytes=0-${FIRST_CHUNK_BYTES - 1}`;
+              isRequestingStartupChunk = true;
+            } else {
+              effectiveRange = `bytes=${start}-${start + NEXT_CHUNK_BYTES - 1}`;
+            }
+          }
+        }
+      }
+
+      // Nếu là khúc khởi động 0-1MB, dùng chung hàm warmStartupChunk để vừa chống trùng lặp vừa lưu RAM
+      if (isRequestingStartupChunk) {
+        const warmed = await warmStartupChunk(env, sessionId);
+        if (warmed) {
+          const ramHeaders = new Headers(warmed.headers);
+          if (!ramHeaders.has("Content-Type")) ramHeaders.set("Content-Type", "video/mp4");
+          if (!ramHeaders.has("Accept-Ranges")) ramHeaders.set("Accept-Ranges", "bytes");
+          ramHeaders.set("Cache-Control", "private, max-age=86400");
+          ramHeaders.set("X-AVL-Startup-Cache", "WARMED");
+          return new Response(warmed.buffer, { status: warmed.status, headers: ramHeaders });
+        }
       }
 
       const upstreamUrl = `${base(env)}/sessions/${encodeURIComponent(sessionId)}/video`;
-
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, video/*;q=0.9, application/octet-stream;q=0.8, */*;q=0.1",
       });
-      const range = request.headers.get("Range");
-      if (range) headers.set("Range", range);
+      if (effectiveRange) headers.set("Range", effectiveRange);
 
       const connectController = new AbortController();
       const connectTimer = setTimeout(() => connectController.abort(), 45000);
@@ -544,7 +623,7 @@ export async function onRequest(context) {
       } catch {
         const timedOut = connectController.signal.aborted && !request.signal?.aborted;
         return json({
-          error: timedOut ? "Máy cửa hàng đang đóng gói file video, đang tự động nối lại…" : "Không kết nối được luồng video.",
+          error: timedOut ? "Máy cửa hàng đang đóng gói video, đang tự động nối lại…" : "Không kết nối được luồng video.",
         }, timedOut ? 504 : 502);
       } finally {
         clearTimeout(connectTimer);
@@ -562,7 +641,7 @@ export async function onRequest(context) {
       if (!outputHeaders.has("Content-Type")) outputHeaders.set("Content-Type", "video/mp4");
       if (!outputHeaders.has("Accept-Ranges")) outputHeaders.set("Accept-Ranges", "bytes");
       outputHeaders.set("Cache-Control", "private, max-age=86400");
-      outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
+      outputHeaders.set("Content-Disposition", `${isStream ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
     }
 
