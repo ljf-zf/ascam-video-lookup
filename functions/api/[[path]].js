@@ -2,9 +2,10 @@ const COOKIE = "avl_session";
 const SESSION_SECONDS = 36000;
 const enc = new TextEncoder();
 
-// Bộ nhớ đệm RAM cho thông tin đơn hàng (Không chặn luồng stream video)
+// Bộ nhớ đệm RAM & Chỉ mục đơn hàng trên Cloudflare Worker
 const memCache = globalThis.__avlCache || (globalThis.__avlCache = new Map());
 const orderIndex = globalThis.__avlOrderIndex || (globalThis.__avlOrderIndex = new Map());
+const warmedSessions = globalThis.__avlWarmed || (globalThis.__avlWarmed = new Set());
 
 function getCached(key) {
   const entry = memCache.get(key);
@@ -17,14 +18,14 @@ function getCached(key) {
 }
 
 function setCached(key, val, ttlMs = 45000) {
-  if (memCache.size > 400) memCache.clear();
+  if (memCache.size > 500) memCache.clear();
   memCache.set(key, { val, exp: Date.now() + ttlMs });
 }
 
 function indexOrders(items) {
   if (!Array.isArray(items)) return;
   const now = Date.now();
-  if (orderIndex.size > 1500) orderIndex.clear();
+  if (orderIndex.size > 2000) orderIndex.clear();
   for (const item of items) {
     const code = String(item?.orderCode || item?.OrderCode || item?.rawCode || "").toUpperCase();
     if (code) {
@@ -143,7 +144,7 @@ function sanitizeOrderPayload(obj) {
 
 async function asc(env, path, init = {}) {
   if (!env.ASCAM_API_TOKEN) throw new Error("Chưa cấu hình ASCAM_API_TOKEN.");
-  const { timeoutMs = 10000, ...fetchInit } = init;
+  const { timeoutMs = 8000, ...fetchInit } = init;
   const headers = new Headers(fetchInit.headers || {});
   headers.set("Authorization", `Bearer ${env.ASCAM_API_TOKEN}`);
   if (fetchInit.body) headers.set("Content-Type", "application/json");
@@ -162,7 +163,7 @@ async function asc(env, path, init = {}) {
       : { error: data.message || data.error || `ASCAM HTTP ${response.status}`, status: response.status };
   } catch (err) {
     if (ctrl.signal.aborted) {
-      return { error: "Máy chủ ASCAM tại cửa hàng đang bận xử lý video, vui lòng thử lại sau vài giây.", status: 504 };
+      return { error: "Kết nối ASCAM phản hồi chậm, vui lòng thử lại.", status: 504 };
     }
     return { error: err.message || "Không thể kết nối tới ASCAM.", status: 502 };
   } finally {
@@ -181,6 +182,41 @@ function extractItems(data) {
   return [];
 }
 
+function getSessionIdFromItem(item) {
+  if (!item) return "";
+  if (item.sessionId || item.id) return String(item.sessionId || item.id);
+  if (Array.isArray(item.sessions) && item.sessions[0]) {
+    return String(item.sessions[0].sessionId || item.sessions[0].id || "");
+  }
+  return "";
+}
+
+// Đánh thức trước 64KB đầu tiên của file video trên máy cửa hàng ngay khi tìm thấy đơn
+async function prewarmVideoOnStorePC(env, sessionId) {
+  const sId = String(sessionId || "");
+  if (!safeSession(sId) || warmedSessions.has(sId)) return;
+  if (warmedSessions.size > 300) warmedSessions.clear();
+  warmedSessions.add(sId);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${base(env)}/sessions/${encodeURIComponent(sId)}/video`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
+        Range: "bytes=0-65535",
+      },
+      signal: ctrl.signal,
+    });
+    try { await res.body?.cancel(); } catch {}
+  } catch {
+    warmedSessions.delete(sId);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function normalizeRole(role) {
   const r = String(role || "").toLowerCase().trim();
   if (["overview", "main", "primary", "tc"].includes(r)) return "overview";
@@ -196,7 +232,12 @@ function isLinkValid(link) {
   return Number.isNaN(exp) || exp > Date.now() + 30000;
 }
 
-export async function onRequest({ request, env }) {
+export async function onRequest(context) {
+  const { request, env } = context;
+  const bg = promise => {
+    try { context.waitUntil?.(promise); } catch {}
+  };
+
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/?/, "");
   const method = request.method.toUpperCase();
@@ -237,13 +278,38 @@ export async function onRequest({ request, env }) {
     try { base(env); } catch (error) {
       return json({ website: "ok", ascam: "not_configured", message: error.message });
     }
-    const result = await asc(env, "/health", { timeoutMs: 5000 });
+    const result = await asc(env, "/health", { timeoutMs: 4500 });
     if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error });
     return json({ website: "ok", ascam: "connected", message: "Online" });
   }
 
   try {
-    // 1. TÌM KIẾM NHANH & CHÍNH XÁC
+    // 0. LẤY NHANH 25 ĐƠN MỚI NHẤT KHI VỪA MỞ WEB & ĐÁNH THỨC SẴN VIDEO
+    if (path === "recent" && method === "GET") {
+      const cachedRecent = getCached("recent:list");
+      if (cachedRecent) return json(cachedRecent);
+
+      const res = await asc(env, `/orders?${new URLSearchParams({ page: "1", pageSize: "25" })}`, { timeoutMs: 6000 });
+      if (res.error) return json({ items: [] });
+
+      const rawItems = extractItems(res.data);
+      indexOrders(rawItems);
+      const cleanItems = rawItems.map(sanitizeOrderPayload);
+
+      // Đánh thức ngầm 2 đơn vừa đóng gói mới nhất
+      for (const item of cleanItems.slice(0, 2)) {
+        if (item.status === "completed") {
+          const sId = getSessionIdFromItem(item);
+          if (sId) bg(prewarmVideoOnStorePC(env, sId));
+        }
+      }
+
+      const payload = { items: cleanItems, total: cleanItems.length };
+      setCached("recent:list", payload, 15000);
+      return json(payload);
+    }
+
+    // 1. TÌM KIẾM TỨC THÌ & ĐÁNH THỨC LUỒNG VIDEO NGAY TRONG LÚC TRẢ KẾT QUẢ
     if (path === "search" && method === "GET") {
       const query = (url.searchParams.get("q") || "").trim();
       if (query.length < 4 || query.length > 80) {
@@ -253,19 +319,28 @@ export async function onRequest({ request, env }) {
       const qUpper = query.toUpperCase();
       const cacheKey = `search:${qUpper}`;
       const cachedSearch = getCached(cacheKey);
-      if (cachedSearch) return json(cachedSearch);
+      if (cachedSearch) {
+        const topSid = getSessionIdFromItem(cachedSearch.items?.[0]);
+        if (topSid) bg(prewarmVideoOnStorePC(env, topSid));
+        return json(cachedSearch);
+      }
 
-      // Nếu nhập mã vận đơn đầy đủ (>= 10 ký tự) -> Lấy trực tiếp đơn hàng
+      // Nhập mã đầy đủ (>= 10 ký tự) -> Lấy trực tiếp đơn hàng
       if (query.length >= 10 && safeCode(query)) {
         const ramHit = orderIndex.get(qUpper);
         if (ramHit && Date.now() - ramHit.at < 300000) {
+          const sId = getSessionIdFromItem(ramHit.item);
+          if (sId) bg(prewarmVideoOnStorePC(env, sId));
           return json({ items: [ramHit.item], total: 1, scannedRecords: 1, totalRecords: 1 });
         }
-        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 6000 });
+
+        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 5500 });
         if (!direct.error && direct.data && (direct.data.orderCode || direct.data.OrderCode || direct.data.id)) {
           const clean = sanitizeOrderPayload(direct.data);
           indexOrders([clean]);
           setCached(`order:${qUpper}`, clean, 120000);
+          const sId = getSessionIdFromItem(clean);
+          if (sId) bg(prewarmVideoOnStorePC(env, sId));
           const payload = { items: [clean], total: 1, scannedRecords: 1, totalRecords: 1 };
           setCached(cacheKey, payload, 60000);
           return json(payload);
@@ -276,9 +351,11 @@ export async function onRequest({ request, env }) {
 
       // Tìm trên 80 đơn mới nhất trước
       const fastPageSize = 80;
-      const first = await asc(env, `/orders?${new URLSearchParams({ q: query, search: query, page: "1", pageSize: String(fastPageSize) })}`, { timeoutMs: 7000 });
+      const first = await asc(env, `/orders?${new URLSearchParams({ q: query, search: query, page: "1", pageSize: String(fastPageSize) })}`, { timeoutMs: 6500 });
       if (first.error) {
         if (ramMatched.length > 0) {
+          const sId = getSessionIdFromItem(ramMatched[0]);
+          if (sId) bg(prewarmVideoOnStorePC(env, sId));
           return json({ items: ramMatched, total: ramMatched.length, scannedRecords: orderIndex.size, totalRecords: orderIndex.size });
         }
         return json({ error: first.error }, first.status);
@@ -310,7 +387,7 @@ export async function onRequest({ request, env }) {
           const promises = [];
           for (let p = start; p <= end; p++) {
             promises.push(
-              asc(env, `/orders?${new URLSearchParams({ page: String(p), pageSize: String(scanPageSize) })}`, { timeoutMs: 6500 })
+              asc(env, `/orders?${new URLSearchParams({ page: String(p), pageSize: String(scanPageSize) })}`, { timeoutMs: 6000 })
             );
           }
           const results = await Promise.all(promises);
@@ -336,6 +413,12 @@ export async function onRequest({ request, env }) {
         }
       }
 
+      // Đánh thức ngay lập tức luồng video của 2 kết quả đầu tiên trên máy cửa hàng
+      for (const item of uniqueItems.slice(0, 2)) {
+        const sId = getSessionIdFromItem(item);
+        if (sId) bg(prewarmVideoOnStorePC(env, sId));
+      }
+
       const responsePayload = {
         items: uniqueItems,
         total: uniqueItems.length,
@@ -353,13 +436,19 @@ export async function onRequest({ request, env }) {
 
       const cacheKey = `order:${code.toUpperCase()}`;
       const cachedOrder = getCached(cacheKey);
-      if (cachedOrder) return json(cachedOrder);
+      if (cachedOrder) {
+        const sId = getSessionIdFromItem(cachedOrder);
+        if (sId) bg(prewarmVideoOnStorePC(env, sId));
+        return json(cachedOrder);
+      }
 
-      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 7000 });
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 6500 });
       if (result.error) return json({ error: result.error }, result.status);
       const clean = sanitizeOrderPayload(result.data);
       indexOrders([clean]);
       setCached(cacheKey, clean, 120000);
+      const sId = getSessionIdFromItem(clean);
+      if (sId) bg(prewarmVideoOnStorePC(env, sId));
       return json(clean);
     }
 
@@ -390,7 +479,7 @@ export async function onRequest({ request, env }) {
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
         body: JSON.stringify(sharePayload),
-        timeoutMs: 15000,
+        timeoutMs: 12000,
       });
 
       if (result.error) return json({ error: result.error }, result.status);
@@ -417,14 +506,19 @@ export async function onRequest({ request, env }) {
       });
     }
 
-    // 5. LUỒNG VIDEO TRỰC TIẾP (/sessions/{id}/video) - TRUYỀN THẲNG TỨC THÌ (PASS-THROUGH STREAMING)
-    // Tuyệt đối KHÔNG bật cf: { cacheEverything: true } vì sẽ bắt Cloudflare tải hết cả file từ máy cửa hàng mới trả byte đầu tiên!
+    // 5. LUỒNG VIDEO TRỰC TIẾP (/sessions/{id}/video) & ĐÁNH THỨC NHANH (?warm=1)
     if ((path === "stream" || path === "download") && method === "GET") {
       if (url.searchParams.has("camId") || url.searchParams.has("cameraId")) {
         return json({ error: "Chặn tham số camId để bảo vệ ASCAM.", code: "CAMID_BLOCKED" }, 410);
       }
       const sessionId = url.searchParams.get("sessionId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
+
+      // Nếu trình duyệt gửi tín hiệu đánh thức khi lướt chuột (?warm=1), kích hoạt ngầm và trả về ngay lập tức
+      if (url.searchParams.get("warm") === "1") {
+        bg(prewarmVideoOnStorePC(env, sessionId));
+        return new Response(null, { status: 204 });
+      }
 
       const upstreamUrl = `${base(env)}/sessions/${encodeURIComponent(sessionId)}/video`;
 
@@ -436,8 +530,7 @@ export async function onRequest({ request, env }) {
       if (range) headers.set("Range", range);
 
       const connectController = new AbortController();
-      // Cho phép tối đa 50 giây để nếu đơn hàng mới tinh cần máy cửa hàng đóng gói lần đầu thì vẫn nối luồng thành công mà không bị cắt ngang
-      const connectTimer = setTimeout(() => connectController.abort(), 50000);
+      const connectTimer = setTimeout(() => connectController.abort(), 45000);
       const streamSignal = request.signal ? AbortSignal.any([request.signal, connectController.signal]) : connectController.signal;
 
       let response;
@@ -468,7 +561,6 @@ export async function onRequest({ request, env }) {
       }
       if (!outputHeaders.has("Content-Type")) outputHeaders.set("Content-Type", "video/mp4");
       if (!outputHeaders.has("Accept-Ranges")) outputHeaders.set("Accept-Ranges", "bytes");
-      // Lưu đệm trên trình duyệt người dùng (private) để không chặn luồng truyền trực tiếp của Cloudflare
       outputHeaders.set("Cache-Control", "private, max-age=86400");
       outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
