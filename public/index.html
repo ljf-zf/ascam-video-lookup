@@ -82,8 +82,15 @@
 
     /* Trình phát Video */
     .player-wrapper { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 16px; overflow: hidden; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .player-wrapper video, .player-wrapper iframe { width: 100%; height: 100%; object-fit: contain; border: none; }
-    .empty-player { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #4b5563; gap: 12px; }
+    .player-stage { width: 100%; height: 100%; position: relative; overflow: hidden; transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1); transform-origin: center center; will-change: transform; }
+    .player-stage video, .player-stage iframe { width: 100%; height: 100%; object-fit: contain; border: none; background: #000; }
+    /* Chế độ cắt & phóng to riêng từng góc Camera từ luồng ghép dọc của ASCAM */
+    .player-wrapper[data-crop="overview"] .player-stage { transform: scale(1.92) translateY(23.5%); }
+    .player-wrapper[data-crop="waybill"] .player-stage { transform: scale(1.92) translateY(-23.5%); }
+    .player-wrapper[data-crop="full"] .player-stage { transform: scale(1) translateY(0); }
+    .empty-player { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #4b5563; gap: 12px; z-index: 2; background: #090d16; }
+    .loading-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(9, 13, 22, 0.72); color: #fff; font-size: 14px; font-weight: 500; z-index: 3; backdrop-filter: blur(4px); }
+    .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.75s linear infinite; }
     
     /* Bảng điều khiển Camera */
     .camera-controls { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
@@ -178,31 +185,41 @@
         </button>
       </div>
 
-      <div class="player-wrapper">
+      <div class="player-wrapper" id="playerWrapper" data-crop="overview">
         <div id="emptyPlayer" class="empty-player">
           <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
           <p>Chọn góc Camera để phát video</p>
         </div>
-        <video id="videoPlayer" class="hidden" controls autoplay playsinline></video>
-        <iframe id="shareFrame" class="hidden" allow="autoplay; fullscreen"></iframe>
+        <div id="loadingOverlay" class="loading-overlay hidden">
+          <div class="spinner"></div>
+          <span id="loadingText">Đang kết nối luồng P2P tốc độ cao...</span>
+        </div>
+        <div class="player-stage">
+          <video id="videoPlayer" class="hidden" controls autoplay playsinline preload="metadata"></video>
+          <iframe id="shareFrame" class="hidden" allow="autoplay; fullscreen"></iframe>
+        </div>
       </div>
 
       <div class="camera-controls">
-        <button class="cam-btn" data-cam="overview">
+        <button class="cam-btn" data-cam="overview" title="Phóng to góc Toàn cảnh (Nửa trên)">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
           Toàn cảnh
         </button>
-        <button class="cam-btn" data-cam="waybill">
+        <button class="cam-btn" data-cam="waybill" title="Phóng to góc Vận đơn / Mã QR (Nửa dưới)">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
           Vận đơn
         </button>
-        <button class="cam-btn" data-cam="merged" title="Phát video ghép MP4">
+        <button class="cam-btn" data-cam="full" title="Xem đồng thời cả 2 góc trên/dưới">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          2 Góc
+        </button>
+        <button class="cam-btn" data-cam="merged" title="Tải luồng MP4 trực tiếp">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m-4 4h4m-4 4h4m10-12h4m-4 4h4m-4 4h4M4 4h16c.55 0 1 .45 1 1v14c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1V5c0-.55.45-1 1-1z"></path></svg>
           MP4
         </button>
-        <button class="cam-btn btn-icon-only" id="btnP2P" title="Mở luồng CDN / P2P gốc">
+        <a class="cam-btn btn-icon-only hidden" id="btnOpenTab" target="_blank" rel="noopener" title="Mở tab gốc toàn màn hình">
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-        </button>
+        </a>
       </div>
       
       <div id="sessionChips"></div>
@@ -329,116 +346,140 @@
       $("sidebarScrim").classList.add("visible");
     }
 
-    $("btnCloseSidebar").onclick = $("sidebarScrim").onclick = () => {
+    function closeSidebar() {
       $("sidebar").classList.remove("open");
       $("sidebarScrim").classList.remove("visible");
-    };
+    }
+
+    $("btnCloseSidebar").onclick = $("sidebarScrim").onclick = closeSidebar;
 
     // --- TÌM KIẾM & RENDER ĐƠN ---
-    async function search(q) {
-      if(q.length < 4) return showToast("Nhập ít nhất 4 số cuối", true);
-      $("btnSearch").innerHTML = `<svg class="animate-spin" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;"><path d="M12 4v2m0 12v2m8-8h-2M6 12H4m13.657-5.657l-1.414 1.414M7.757 16.243l-1.414 1.414M17.657 17.657l-1.414-1.414M6.343 6.343l1.414 1.414" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-      try {
-        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 30000 });
-        const items = data.items || [];
-        $("mainLayout").classList.add("has-results");
-        
-        if (items.length === 0) {
-          showToast(`Không tìm thấy đơn khớp "${q}"`, true);
-          $("resultsList").classList.add("hidden");
-          $("videoArea").classList.add("hidden");
-        } else if (items.length === 1) {
-          $("resultsList").classList.add("hidden");
-          renderOrder(items[0]);
-        } else {
-          $("videoArea").classList.add("hidden");
-          $("resultsList").innerHTML = items.map(item => `
-            <button class="result-item" onclick="loadOrder('${item.orderCode || item.OrderCode}')">
-              <div><b>${item.orderCode || item.OrderCode}</b><small>${formatTime(item.packedAt || item.startedAt)} · Bàn: ${item.stationName || '—'}</small></div>
-            </button>
-          `).join("");
-          $("resultsList").classList.remove("hidden");
-        }
-      } catch (e) { showToast(e.message, true); } 
-      finally { $("btnSearch").innerHTML = `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>`; }
-    }
+    // --- XỬ LÝ VIDEO (ƯU TIÊN P2P/CDN INSTANT STREAM + SMART CROP TOÀN CẢNH / VẬN ĐƠN) ---
+    let activeStreamType = null; // 'p2p' | 'mp4'
+    let activeSessionId = null;
 
-    async function loadOrder(code) {
-      closeSidebar();
-      $("mainLayout").classList.add("has-results");
-      $("resultsList").classList.add("hidden");
-      showToast("Đang tải dữ liệu...");
-      try {
-        const data = await api("order?code=" + encodeURIComponent(code));
-        renderOrder(data);
-      } catch (e) { showToast(e.message, true); }
-    }
-
-    function renderOrder(data) {
-      selectedOrder = data.order || data.data?.order || data;
-      selectedSessions = data.sessions || data.order?.sessions || [selectedOrder];
-      selectedSession = selectedSessions[0] || null;
-      
-      const code = selectedOrder.orderCode || selectedOrder.OrderCode;
-      saveHistory(code);
-      updateBookmarkUI();
-
-      $("uiOrderCode").textContent = code;
-      const status = selectedSession?.status || selectedOrder.status;
-      $("uiStatus").textContent = status === 'completed' ? 'Đã đóng' : status === 'recording' ? 'Đang ghi hình' : status;
-      $("uiStatus").className = `tag ${status}`;
-      $("uiStation").textContent = `Bàn: ${selectedSession?.stationName || '—'}`;
-      $("uiTime").textContent = formatTime(selectedSession?.packedAt || selectedSession?.startedAt);
-
-      $("sessionChips").innerHTML = selectedSessions.length > 1 ? selectedSessions.map((s, i) => `
-        <button class="session-chip ${i===0?'active':''}" onclick="selectSession(${i})">Phiên ${i+1} (${s.durationSec||0}s)</button>
-      `).join("") : "";
-
-      $("videoArea").classList.remove("hidden");
-      resetPlayer();
-      if(status === 'completed') playCam("overview");
-      else showToast("Đơn đang ghi hình, chưa có video.", true);
-    }
-
-    function selectSession(idx) {
-      selectedSession = selectedSessions[idx];
-      document.querySelectorAll(".session-chip").forEach((el, i) => el.classList.toggle("active", i === idx));
-      resetPlayer();
-      playCam(currentMode);
-    }
-
-    // --- XỬ LÝ VIDEO ---
     function resetPlayer() {
+      activeStreamType = null;
+      activeSessionId = null;
       $("emptyPlayer").classList.remove("hidden");
-      const v = $("videoPlayer"); v.pause(); v.removeAttribute("src"); v.classList.add("hidden");
-      const f = $("shareFrame"); f.src = "about:blank"; f.classList.add("hidden");
+      $("loadingOverlay").classList.add("hidden");
+      $("playerWrapper").dataset.crop = "full";
+      const v = $("videoPlayer");
+      v.onerror = null;
+      v.onloadeddata = null;
+      v.pause();
+      v.removeAttribute("src");
+      v.classList.add("hidden");
+      const f = $("shareFrame");
+      f.onload = null;
+      f.src = "about:blank";
+      f.classList.add("hidden");
+      $("btnOpenTab").classList.add("hidden");
       document.querySelectorAll(".cam-btn").forEach(b => b.classList.remove("active"));
     }
 
-    async function playCam(mode, forceP2P = false) {
-      if(!selectedSession || selectedSession.status === 'recording') return;
+    function getInstantShareUrl(session) {
+      const now = Date.now() + 30000;
+      const links = [
+        ...(Array.isArray(session?.shareLinks) ? session.shareLinks : []),
+        ...(Array.isArray(selectedOrder?.shareLinks) ? selectedOrder.shareLinks : [])
+      ];
+      const validLink = links.find(l => l?.shareUrl && (!l.expiresAt || new Date(l.expiresAt).getTime() > now));
+      if (validLink) return validLink.shareUrl;
+
+      const direct = session?.shareUrl || session?.videoUrl || session?.VideoUrl || selectedOrder?.shareUrl || selectedOrder?.videoUrl || selectedOrder?.VideoUrl;
+      const exp = session?.shareExpiresAt || selectedOrder?.shareExpiresAt;
+      if (direct && (!exp || new Date(exp).getTime() > now)) return direct;
+      return null;
+    }
+
+    async function playCam(mode) {
+      if (!selectedSession || selectedSession.status === "recording") return;
       currentMode = mode;
       document.querySelectorAll(".cam-btn[data-cam]").forEach(b => b.classList.toggle("active", b.dataset.cam === mode));
       $("emptyPlayer").classList.add("hidden");
-      
-      const v = $("videoPlayer"), f = $("shareFrame");
-      const sid = selectedSession.sessionId || selectedSession.id;
 
-      if (forceP2P || (mode === 'overview' && forceP2P)) {
-        v.pause(); v.classList.add("hidden"); f.classList.remove("hidden");
-        showToast("Đang mở CDN/P2P...");
-        try {
-          const res = await api("share", { method: "POST", body: JSON.stringify({ orderCode: selectedOrder.orderCode, sessionId: sid, role: mode, mode: "p2p" }) });
-          f.src = res.shareUrl;
-        } catch (e) { showToast(e.message, true); resetPlayer(); }
+      const wrapper = $("playerWrapper");
+      const v = $("videoPlayer");
+      const f = $("shareFrame");
+      const loader = $("loadingOverlay");
+      const sid = String(selectedSession.sessionId || selectedSession.id);
+
+      // 1. Nút Toàn cảnh / Vận đơn / 2 Góc: Chuyển góc TỨC THÌ (0ms) bằng Viewport Zoom & ưu tiên luồng P2P/CDN có sẵn
+      if (mode === "overview" || mode === "waybill" || mode === "full") {
+        wrapper.dataset.crop = mode;
+
+        // Nếu luồng của đúng session này đang chạy sẵn rồi (dù là P2P hay MP4), chỉ đổi góc cắt 0ms, KHÔNG tải lại video!
+        if (activeSessionId === sid && (activeStreamType === "p2p" || activeStreamType === "mp4")) {
+          return;
+        }
+
+        // Bắt đầu mở luồng P2P/CDN tức thì (không qua /api/stream ghép file chậm chạp)
+        v.pause();
+        v.removeAttribute("src");
+        v.classList.add("hidden");
+        f.classList.remove("hidden");
+
+        let shareUrl = getInstantShareUrl(selectedSession);
+        if (!shareUrl) {
+          loader.classList.remove("hidden");
+          $("loadingText").textContent = "Đang lấy luồng phát nhanh từ ASCAM...";
+          try {
+            const res = await api("share", {
+              method: "POST",
+              body: JSON.stringify({
+                orderCode: selectedOrder.orderCode || selectedOrder.OrderCode,
+                sessionId: sid,
+                role: "overview",
+                mode: "p2p"
+              })
+            });
+            shareUrl = res.shareUrl;
+            selectedSession.shareUrl = shareUrl;
+          } catch (e) {
+            loader.classList.add("hidden");
+            showToast("Chuyển sang luồng MP4 dự phòng...");
+            playCam("merged");
+            return;
+          }
+        }
+
+        loader.classList.remove("hidden");
+        $("loadingText").textContent = "Đang nạp khung hình...";
+        f.onload = () => loader.classList.add("hidden");
+        setTimeout(() => loader.classList.add("hidden"), 3500);
+
+        f.src = shareUrl;
+        activeStreamType = "p2p";
+        activeSessionId = sid;
+
+        const openBtn = $("btnOpenTab");
+        openBtn.href = shareUrl;
+        openBtn.classList.remove("hidden");
         return;
       }
 
-      f.src = "about:blank"; f.classList.add("hidden");
-      v.classList.remove("hidden");
-      v.src = `/api/stream?sessionId=${encodeURIComponent(sid)}&role=${mode}${mode==='merged'?'&mode=merged':''}`;
-      v.onerror = () => { if(mode!=='merged') playCam(mode, true); };
-      v.play().catch(()=>{});
+      // 2. Nút MP4: Chỉ khi bấm rõ vào MP4 mới gọi /api/stream
+      if (mode === "merged") {
+        wrapper.dataset.crop = "full";
+        f.src = "about:blank";
+        f.classList.add("hidden");
+        v.classList.remove("hidden");
+
+        loader.classList.remove("hidden");
+        $("loadingText").textContent = "Đang tải file MP4 từ máy cửa hàng (có thể mất 10-30s)...";
+
+        v.onloadeddata = () => loader.classList.add("hidden");
+        v.onerror = () => {
+          loader.classList.add("hidden");
+          showToast("Không tải được MP4 trực tiếp, chuyển về P2P", true);
+        };
+
+        v.src = `/api/stream?sessionId=${encodeURIComponent(sid)}`;
+        activeStreamType = "mp4";
+        activeSessionId = sid;
+        v.play().catch(() => {});
+      }
     }
 
     // --- EVENTS ---
@@ -458,7 +499,6 @@
     document.querySelectorAll(".cam-btn[data-cam]").forEach(btn => {
       btn.onclick = () => playCam(btn.dataset.cam);
     });
-    $("btnP2P").onclick = () => playCam(currentMode, true);
     
     // Global style for spinner
     document.head.insertAdjacentHTML("beforeend", `<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>`);
