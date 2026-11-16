@@ -2,7 +2,7 @@ const COOKIE = "avl_session";
 const SESSION_SECONDS = 36000;
 const enc = new TextEncoder();
 
-// Bộ nhớ đệm RAM & Chỉ mục đơn hàng siêu tốc trên Cloudflare Worker
+// Bộ nhớ đệm RAM cho thông tin đơn hàng (Không chặn luồng stream video)
 const memCache = globalThis.__avlCache || (globalThis.__avlCache = new Map());
 const orderIndex = globalThis.__avlOrderIndex || (globalThis.__avlOrderIndex = new Map());
 
@@ -39,7 +39,7 @@ function searchInRamIndex(query) {
   const now = Date.now();
   const matched = [];
   for (const [code, entry] of orderIndex.entries()) {
-    if (now - entry.at > 180000) continue; // Giữ chỉ mục 3 phút
+    if (now - entry.at > 300000) continue;
     if (isShort ? (code.endsWith(qUpper) || code.includes(qUpper)) : code.includes(qUpper)) {
       matched.push(entry.item);
     }
@@ -143,19 +143,31 @@ function sanitizeOrderPayload(obj) {
 
 async function asc(env, path, init = {}) {
   if (!env.ASCAM_API_TOKEN) throw new Error("Chưa cấu hình ASCAM_API_TOKEN.");
-  const { timeoutMs = 6500, ...fetchInit } = init;
+  const { timeoutMs = 10000, ...fetchInit } = init;
   const headers = new Headers(fetchInit.headers || {});
   headers.set("Authorization", `Bearer ${env.ASCAM_API_TOKEN}`);
   if (fetchInit.body) headers.set("Content-Type", "application/json");
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const signal = fetchInit.signal ? AbortSignal.any([fetchInit.signal, timeoutSignal]) : timeoutSignal;
-  const response = await fetch(base(env) + path, { ...fetchInit, headers, signal });
-  const raw = await response.text();
-  let data;
-  try { data = JSON.parse(raw); } catch { data = { message: raw.slice(0, 300) }; }
-  return response.ok
-    ? { data, status: response.status }
-    : { error: data.message || data.error || `ASCAM HTTP ${response.status}`, status: response.status };
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const signal = fetchInit.signal ? AbortSignal.any([fetchInit.signal, ctrl.signal]) : ctrl.signal;
+
+  try {
+    const response = await fetch(base(env) + path, { ...fetchInit, headers, signal });
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { data = { message: raw.slice(0, 300) }; }
+    return response.ok
+      ? { data, status: response.status }
+      : { error: data.message || data.error || `ASCAM HTTP ${response.status}`, status: response.status };
+  } catch (err) {
+    if (ctrl.signal.aborted) {
+      return { error: "Máy chủ ASCAM tại cửa hàng đang bận xử lý video, vui lòng thử lại sau vài giây.", status: 504 };
+    }
+    return { error: err.message || "Không thể kết nối tới ASCAM.", status: 502 };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(value);
@@ -225,20 +237,15 @@ export async function onRequest({ request, env }) {
     try { base(env); } catch (error) {
       return json({ website: "ok", ascam: "not_configured", message: error.message });
     }
-    try {
-      const result = await asc(env, "/health", { timeoutMs: 4000 });
-      if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error });
-      return json({ website: "ok", ascam: "connected", message: "Online" });
-    } catch {
-      return json({ website: "ok", ascam: "unavailable", message: "Offline" });
-    }
+    const result = await asc(env, "/health", { timeoutMs: 5000 });
+    if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error });
+    return json({ website: "ok", ascam: "connected", message: "Online" });
   }
 
   try {
-    // 1. TÌM KIẾM SIÊU TỐC (Chỉ mục RAM <5ms + Tiên đoán khi gõ + Quét đa luồng)
+    // 1. TÌM KIẾM NHANH & CHÍNH XÁC
     if (path === "search" && method === "GET") {
       const query = (url.searchParams.get("q") || "").trim();
-      const fastOnly = url.searchParams.get("fast") === "1";
       if (query.length < 4 || query.length > 80) {
         return json({ error: "Nhập ít nhất 4 ký tự cuối hoặc mã vận đơn đầy đủ." }, 400);
       }
@@ -248,33 +255,28 @@ export async function onRequest({ request, env }) {
       const cachedSearch = getCached(cacheKey);
       if (cachedSearch) return json(cachedSearch);
 
-      // Kiểm tra trong Chỉ mục RAM trước (< 1ms)
-      const ramMatched = searchInRamIndex(query);
-      if (ramMatched.length > 0 && (fastOnly || query.length >= 10)) {
-        return json({
-          items: ramMatched,
-          total: ramMatched.length,
-          scannedRecords: orderIndex.size,
-          totalRecords: orderIndex.size,
-        });
-      }
-
-      // Nếu nhập mã đầy đủ (>= 10 ký tự) -> Lấy thẳng đơn hàng (300ms)
+      // Nếu nhập mã vận đơn đầy đủ (>= 10 ký tự) -> Lấy trực tiếp đơn hàng
       if (query.length >= 10 && safeCode(query)) {
-        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 3800 }).catch(() => ({ error: "skip" }));
+        const ramHit = orderIndex.get(qUpper);
+        if (ramHit && Date.now() - ramHit.at < 300000) {
+          return json({ items: [ramHit.item], total: 1, scannedRecords: 1, totalRecords: 1 });
+        }
+        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 6000 });
         if (!direct.error && direct.data && (direct.data.orderCode || direct.data.OrderCode || direct.data.id)) {
           const clean = sanitizeOrderPayload(direct.data);
           indexOrders([clean]);
-          setCached(`order:${qUpper}`, clean, 90000);
+          setCached(`order:${qUpper}`, clean, 120000);
           const payload = { items: [clean], total: 1, scannedRecords: 1, totalRecords: 1 };
-          setCached(cacheKey, payload, 45000);
+          setCached(cacheKey, payload, 60000);
           return json(payload);
         }
       }
 
-      // Truy vấn trang 1 (Lưu đệm trang 1 trong 15s để các lần gõ 4 số cuối liên tiếp phản hồi tức thì)
+      const ramMatched = searchInRamIndex(query);
+
+      // Tìm trên 80 đơn mới nhất trước
       const fastPageSize = 80;
-      const first = await asc(env, `/orders?${new URLSearchParams({ q: query, search: query, page: "1", pageSize: String(fastPageSize) })}`, { timeoutMs: 5000 });
+      const first = await asc(env, `/orders?${new URLSearchParams({ q: query, search: query, page: "1", pageSize: String(fastPageSize) })}`, { timeoutMs: 7000 });
       if (first.error) {
         if (ramMatched.length > 0) {
           return json({ items: ramMatched, total: ramMatched.length, scannedRecords: orderIndex.size, totalRecords: orderIndex.size });
@@ -295,8 +297,8 @@ export async function onRequest({ request, env }) {
       let matched = [...firstItems.filter(matchFn), ...ramMatched];
       let scannedRecords = firstItems.length;
 
-      // Nếu không phải chế độ tiên đoán ngầm (fastOnly) và chưa thấy ở trang 1, quét mở rộng
-      if (!fastOnly && matched.length === 0 && totalRecords > firstItems.length) {
+      // Quét mở rộng nếu tìm 4 số cuối chưa thấy ở trang 1
+      if (matched.length === 0 && totalRecords > firstItems.length) {
         const scanPageSize = 200;
         const actualPageSize = Math.max(firstItems.length, 10);
         const totalPages = Math.max(1, Math.ceil(totalRecords / (actualPageSize >= 50 ? scanPageSize : actualPageSize)));
@@ -308,8 +310,7 @@ export async function onRequest({ request, env }) {
           const promises = [];
           for (let p = start; p <= end; p++) {
             promises.push(
-              asc(env, `/orders?${new URLSearchParams({ page: String(p), pageSize: String(scanPageSize) })}`, { timeoutMs: 5000 })
-                .catch(() => ({ error: "skip" }))
+              asc(env, `/orders?${new URLSearchParams({ page: String(p), pageSize: String(scanPageSize) })}`, { timeoutMs: 6500 })
             );
           }
           const results = await Promise.all(promises);
@@ -341,7 +342,7 @@ export async function onRequest({ request, env }) {
         scannedRecords: Math.min(totalRecords, scannedRecords),
         totalRecords,
       };
-      if (uniqueItems.length > 0) setCached(cacheKey, responsePayload, 35000);
+      if (uniqueItems.length > 0) setCached(cacheKey, responsePayload, 45000);
       return json(responsePayload);
     }
 
@@ -354,11 +355,11 @@ export async function onRequest({ request, env }) {
       const cachedOrder = getCached(cacheKey);
       if (cachedOrder) return json(cachedOrder);
 
-      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 5500 });
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 7000 });
       if (result.error) return json({ error: result.error }, result.status);
       const clean = sanitizeOrderPayload(result.data);
       indexOrders([clean]);
-      setCached(cacheKey, clean, 90000);
+      setCached(cacheKey, clean, 120000);
       return json(clean);
     }
 
@@ -389,7 +390,7 @@ export async function onRequest({ request, env }) {
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
         body: JSON.stringify(sharePayload),
-        timeoutMs: 8500,
+        timeoutMs: 15000,
       });
 
       if (result.error) return json({ error: result.error }, result.status);
@@ -416,7 +417,8 @@ export async function onRequest({ request, env }) {
       });
     }
 
-    // 5. LUỒNG VIDEO SIÊU TỐC (/sessions/{id}/video) - TỐI ƯU CLOUDFLARE EDGE CACHE & PREWARM
+    // 5. LUỒNG VIDEO TRỰC TIẾP (/sessions/{id}/video) - TRUYỀN THẲNG TỨC THÌ (PASS-THROUGH STREAMING)
+    // Tuyệt đối KHÔNG bật cf: { cacheEverything: true } vì sẽ bắt Cloudflare tải hết cả file từ máy cửa hàng mới trả byte đầu tiên!
     if ((path === "stream" || path === "download") && method === "GET") {
       if (url.searchParams.has("camId") || url.searchParams.has("cameraId")) {
         return json({ error: "Chặn tham số camId để bảo vệ ASCAM.", code: "CAMID_BLOCKED" }, 410);
@@ -424,47 +426,32 @@ export async function onRequest({ request, env }) {
       const sessionId = url.searchParams.get("sessionId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
 
-      // Dùng ?token= ở tầng Backend (giống cấu trúc downloadUrl gốc của ASCAM) để Cloudflare Edge Cache lưu đệm thành công 100%
-      const upstreamUrl = `${base(env)}/sessions/${encodeURIComponent(sessionId)}/video?token=${encodeURIComponent(env.ASCAM_API_TOKEN)}`;
+      const upstreamUrl = `${base(env)}/sessions/${encodeURIComponent(sessionId)}/video`;
 
-      const range = request.headers.get("Range");
-      const baseHeaders = new Headers({
+      const headers = new Headers({
+        Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, video/*;q=0.9, application/octet-stream;q=0.8, */*;q=0.1",
       });
-      if (range) baseHeaders.set("Range", range);
+      const range = request.headers.get("Range");
+      if (range) headers.set("Range", range);
 
       const connectController = new AbortController();
-      const connectTimer = setTimeout(() => connectController.abort(), 22000);
+      // Cho phép tối đa 50 giây để nếu đơn hàng mới tinh cần máy cửa hàng đóng gói lần đầu thì vẫn nối luồng thành công mà không bị cắt ngang
+      const connectTimer = setTimeout(() => connectController.abort(), 50000);
       const streamSignal = request.signal ? AbortSignal.any([request.signal, connectController.signal]) : connectController.signal;
 
       let response;
       try {
         response = await fetch(upstreamUrl, {
           method: "GET",
-          headers: baseHeaders,
+          headers,
           signal: streamSignal,
           redirect: "follow",
-          cf: {
-            cacheEverything: true,
-            cacheTtl: 86400,
-          },
         });
-
-        // Dự phòng nếu máy chủ yêu cầu thêm Header Authorization
-        if (response.status === 401 || response.status === 403) {
-          try { await response.body?.cancel(); } catch {}
-          baseHeaders.set("Authorization", `Bearer ${env.ASCAM_API_TOKEN}`);
-          response = await fetch(`${base(env)}/sessions/${encodeURIComponent(sessionId)}/video`, {
-            method: "GET",
-            headers: baseHeaders,
-            signal: streamSignal,
-            redirect: "follow",
-          });
-        }
       } catch {
         const timedOut = connectController.signal.aborted && !request.signal?.aborted;
         return json({
-          error: timedOut ? "Quá thời gian kết nối video." : "Không kết nối được luồng video.",
+          error: timedOut ? "Máy cửa hàng đang đóng gói file video, đang tự động nối lại…" : "Không kết nối được luồng video.",
         }, timedOut ? 504 : 502);
       } finally {
         clearTimeout(connectTimer);
@@ -481,8 +468,8 @@ export async function onRequest({ request, env }) {
       }
       if (!outputHeaders.has("Content-Type")) outputHeaders.set("Content-Type", "video/mp4");
       if (!outputHeaders.has("Accept-Ranges")) outputHeaders.set("Accept-Ranges", "bytes");
-      // Cho phép trình duyệt lưu đệm vĩnh viễn các đoạn byte đã tải của phiên này
-      outputHeaders.set("Cache-Control", "public, max-age=604800, immutable");
+      // Lưu đệm trên trình duyệt người dùng (private) để không chặn luồng truyền trực tiếp của Cloudflare
+      outputHeaders.set("Cache-Control", "private, max-age=86400");
       outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
     }
