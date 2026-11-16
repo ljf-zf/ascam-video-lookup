@@ -44,7 +44,9 @@ async function authed(req, secret) {
   try {
     if (await sign(secret, payload) !== signature) return false;
     return JSON.parse(new TextDecoder().decode(unb64(payload))).exp > Date.now() / 1000;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 function cookie(value, age = SESSION_SECONDS) {
@@ -63,7 +65,6 @@ function base(env) {
   return value.endsWith("/api/v1") ? value : value + "/api/v1";
 }
 
-// Xóa sạch toàn bộ token nhạy cảm khỏi URL nội bộ trước khi trả về trình duyệt
 function sanitizeUrl(raw) {
   if (!raw || typeof raw !== "string") return null;
   try {
@@ -128,7 +129,7 @@ function normalizeRole(role) {
   if (["overview", "main", "primary", "tc"].includes(r)) return "overview";
   if (["waybill", "sub", "secondary", "scanner", "vd"].includes(r)) return "waybill";
   if (r === "merged") return "merged";
-  return "";
+  return "overview";
 }
 
 function isLinkValid(link) {
@@ -144,53 +145,64 @@ export async function onRequest({ request, env }) {
   const method = request.method.toUpperCase();
 
   if (!env.APP_PASSWORD || !env.SESSION_SECRET) {
-    return json({ error: "Thiếu APP_PASSWORD hoặc SESSION_SECRET trong Pages Secrets." }, 503);
+    return json({ error: "Thiếu APP_PASSWORD hoặc SESSION_SECRET trong Cloudflare Pages." }, 503);
   }
 
   if (path === "login" && method === "POST") {
     const input = await body(request);
-    if (typeof input.password !== "string" || input.password.length > 256) return json({ error: "Mật khẩu không hợp lệ." }, 400);
+    if (typeof input.password !== "string" || input.password.length > 256) {
+      return json({ error: "Mật khẩu không hợp lệ." }, 400);
+    }
     const [candidate, expected] = await Promise.all([
       crypto.subtle.digest("SHA-256", enc.encode(input.password)),
       crypto.subtle.digest("SHA-256", enc.encode(env.APP_PASSWORD)),
     ]);
-    if (b64(new Uint8Array(candidate)) !== b64(new Uint8Array(expected))) return json({ error: "Mật khẩu không đúng." }, 401);
+    if (b64(new Uint8Array(candidate)) !== b64(new Uint8Array(expected))) {
+      return json({ error: "Mật khẩu không đúng." }, 401);
+    }
     return json({ ok: true }, 200, { "Set-Cookie": cookie(await makeCookie(env.SESSION_SECRET)) });
   }
 
-  if (path === "logout" && method === "POST") return json({ ok: true }, 200, { "Set-Cookie": cookie("", 0) });
+  if (path === "logout" && method === "POST") {
+    return json({ ok: true }, 200, { "Set-Cookie": cookie("", 0) });
+  }
 
   const authenticated = await authed(request, env.SESSION_SECRET);
-  if (path === "me" && method === "GET") return authenticated ? json({ ok: true }) : json({ error: "Cần đăng nhập." }, 401);
-  if (!authenticated) return json({ error: "Phiên đăng nhập hết hạn." }, 401);
+  if (path === "me" && method === "GET") {
+    return authenticated ? json({ ok: true }) : json({ error: "Cần đăng nhập." }, 401);
+  }
+  if (!authenticated) {
+    return json({ error: "Phiên đăng nhập hết hạn." }, 401);
+  }
 
   if (path === "status" && method === "GET") {
-    if (!env.ASCAM_API_TOKEN) return json({ website: "ok", ascam: "not_configured", message: "Chưa cấu hình ASCAM_API_TOKEN." });
+    if (!env.ASCAM_API_TOKEN) return json({ website: "ok", ascam: "not_configured", message: "Thiếu Token" });
     try { base(env); } catch (error) {
       return json({ website: "ok", ascam: "not_configured", message: error.message });
     }
     try {
       const result = await asc(env, "/health", { timeoutMs: 5000 });
-      if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error, httpStatus: result.status });
-      return json({ website: "ok", ascam: "connected", message: "ASCAM API phản hồi bình thường." });
-    } catch (error) {
-      return json({ website: "ok", ascam: "unavailable", message: error.name === "TimeoutError" ? "ASCAM không phản hồi trong 5 giây." : error.message });
+      if (result.error) return json({ website: "ok", ascam: "unavailable", message: result.error });
+      return json({ website: "ok", ascam: "connected", message: "Online" });
+    } catch {
+      return json({ website: "ok", ascam: "unavailable", message: "Offline" });
     }
   }
 
   try {
-    // 1. TÌM KIẾM ĐƠN HÀNG (Hỗ trợ truy vấn trực tiếp & quét phân trang theo lô an toàn cho 4 số cuối)
+    // 1. TÌM KIẾM ĐƠN HÀNG SIÊU TỐC (Hỗ trợ cả mã đầy đủ & 4 số cuối)
     if (path === "search" && method === "GET") {
       const query = (url.searchParams.get("q") || "").trim();
-      if (query.length < 4 || query.length > 80) return json({ error: "Nhập mã đơn đầy đủ hoặc ít nhất 4 ký tự cuối." }, 400);
+      if (query.length < 4 || query.length > 80) {
+        return json({ error: "Nhập ít nhất 4 ký tự cuối hoặc mã vận đơn đầy đủ." }, 400);
+      }
 
-      const isFullCode = query.length >= 8 && safeCode(query);
-      if (isFullCode) {
-        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 6000 }).catch(() => ({ error: "skip" }));
+      // Nếu nhập mã đầy đủ (>= 10 ký tự), lấy trực tiếp đơn hàng trong 1 bước
+      if (query.length >= 10 && safeCode(query)) {
+        const direct = await asc(env, `/orders/${encodeURIComponent(query)}`, { timeoutMs: 4500 }).catch(() => ({ error: "skip" }));
         if (!direct.error && direct.data && (direct.data.orderCode || direct.data.OrderCode || direct.data.id)) {
-          const cleanDirect = sanitizeOrderPayload(direct.data);
           return json({
-            items: [cleanDirect],
+            items: [sanitizeOrderPayload(direct.data)],
             total: 1,
             scannedRecords: 1,
             totalRecords: 1,
@@ -198,56 +210,44 @@ export async function onRequest({ request, env }) {
         }
       }
 
-      const requestedPageSize = 200;
-      const firstParams = new URLSearchParams({
-        q: query,
-        search: query,
-        keyword: query,
-        page: "1",
-        pageSize: String(requestedPageSize),
-        limit: String(requestedPageSize),
-      });
-      const first = await asc(env, `/orders?${firstParams}`, { timeoutMs: 8000 });
+      const pageSize = 200;
+      const first = await asc(env, `/orders?${new URLSearchParams({ q: query, page: "1", pageSize: String(pageSize) })}`, { timeoutMs: 7000 });
       if (first.error) return json({ error: first.error }, first.status);
 
       const firstItems = extractItems(first.data);
-      const actualPageSize = Math.max(firstItems.length, Number(first.data?.pageSize || first.data?.data?.pageSize || 10));
+      const actualPageSize = Math.max(firstItems.length, 10);
       const totalRecords = Number(first.data?.total || first.data?.data?.total || firstItems.length);
       const totalPages = Math.max(1, Math.ceil(totalRecords / actualPageSize));
 
       const qUpper = query.toUpperCase();
-      const isShortQuery = query.length <= 6;
+      const isShort = query.length <= 6;
       const matchFn = item => {
         const code = String(item.orderCode || item.OrderCode || item.rawCode || "").toUpperCase();
-        return isShortQuery ? code.endsWith(qUpper) || code.includes(qUpper) : code.includes(qUpper);
+        return isShort ? code.endsWith(qUpper) || code.includes(qUpper) : code.includes(qUpper);
       };
 
       let matched = firstItems.filter(matchFn);
       let scannedRecords = firstItems.length;
 
-      // Quét theo từng lô 5 trang để tránh làm nghẽn ASCAM tại cửa hàng, dừng sớm ngay khi tìm thấy
+      // Quét theo lô 5 trang nếu tìm 4 số cuối chưa thấy ở trang 1, dừng ngay lập tức khi tìm thấy
       if (matched.length === 0 && totalPages > 1) {
-        const maxPagesToScan = Math.min(totalPages, 40);
+        const maxPages = Math.min(totalPages, 25);
         const batchSize = 5;
-        for (let startPage = 2; startPage <= maxPagesToScan; startPage += batchSize) {
-          const endPage = Math.min(maxPagesToScan, startPage + batchSize - 1);
-          const batchPromises = [];
-          for (let p = startPage; p <= endPage; p++) {
-            const pParams = new URLSearchParams({
-              page: String(p),
-              pageSize: String(requestedPageSize),
-              limit: String(requestedPageSize),
-            });
-            batchPromises.push(
-              asc(env, `/orders?${pParams}`, { timeoutMs: 7000 }).catch(() => ({ error: "skip" }))
+        for (let start = 2; start <= maxPages; start += batchSize) {
+          const end = Math.min(maxPages, start + batchSize - 1);
+          const promises = [];
+          for (let p = start; p <= end; p++) {
+            promises.push(
+              asc(env, `/orders?${new URLSearchParams({ page: String(p), pageSize: String(pageSize) })}`, { timeoutMs: 6000 })
+                .catch(() => ({ error: "skip" }))
             );
           }
-          const batchResults = await Promise.all(batchPromises);
-          for (const res of batchResults) {
+          const results = await Promise.all(promises);
+          for (const res of results) {
             if (!res.error && res.data) {
-              const pageItems = extractItems(res.data);
-              scannedRecords += pageItems.length;
-              matched.push(...pageItems.filter(matchFn));
+              const pItems = extractItems(res.data);
+              scannedRecords += pItems.length;
+              matched.push(...pItems.filter(matchFn));
             }
           }
           if (matched.length > 0) break;
@@ -272,39 +272,35 @@ export async function onRequest({ request, env }) {
       });
     }
 
-    // 2. CHI TIẾT ĐƠN HÀNG (Đã lọc sạch token nhạy cảm)
+    // 2. CHI TIẾT ĐƠN HÀNG
     if (path === "order" && method === "GET") {
       const code = (url.searchParams.get("code") || "").trim();
       if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
-      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 8000 });
+      const result = await asc(env, `/orders/${encodeURIComponent(code)}`, { timeoutMs: 7000 });
       if (result.error) return json({ error: result.error }, result.status);
       return json(sanitizeOrderPayload(result.data));
     }
 
-    // 3. CHẶN TUYỆT ĐỐI CÁC ENDPOINT THỬ NGHIỆM CAMID GÂY TREO APP
+    // 3. CHẶN CỨNG CÁC ENDPOINT GÂY TREO ASCAM
     if (path === "camera-check" || path === "camera-diagnose") {
-      return json({ error: "Endpoint này đã bị vô hiệu hóa vĩnh viễn để bảo vệ tiến trình ghi hình ASCAM.", code: "UNSAFE_ENDPOINT_DISABLED" }, 410);
+      return json({ error: "Endpoint đã khóa để bảo vệ ASCAM.", code: "UNSAFE_ENDPOINT_DISABLED" }, 410);
     }
 
-    // 4. LẤY LINK CHIA SẺ P2P / CDN (Không tự động gán sai role khi fallback)
+    // 4. LẤY LINK CDN / P2P SHARE NHANH (1A)
     if (path === "share" && method === "POST") {
       const input = await body(request);
       const code = (input.orderCode || "").trim();
       if (!safeCode(code)) return json({ error: "Mã đơn không hợp lệ." }, 400);
 
       const role = normalizeRole(input.role || "overview");
-      if (!["overview", "waybill", "merged"].includes(role)) {
-        return json({ error: "Role camera không hợp lệ." }, 400);
-      }
-
       const sessionId = input.sessionId && safeSession(input.sessionId) ? Number(input.sessionId) : null;
-      const storagePref = input.storage === "cloud" ? "cloud" : (role === "merged" ? "cloud" : "p2p");
+      const storageMode = input.storage === "cloud" ? "cloud" : "p2p";
 
       const sharePayload = {
         ...(sessionId ? { sessionId } : {}),
         role,
-        storage: storagePref,
-        mode: storagePref,
+        storage: storageMode,
+        mode: storageMode,
         lang: "vi",
         theme: "dark",
       };
@@ -312,10 +308,10 @@ export async function onRequest({ request, env }) {
       const result = await asc(env, `/orders/${encodeURIComponent(code)}/share`, {
         method: "POST",
         body: JSON.stringify(sharePayload),
-        timeoutMs: 12000,
+        timeoutMs: 10000,
       });
 
-      if (result.error) return json({ error: result.error, requestedRole: role }, result.status);
+      if (result.error) return json({ error: result.error }, result.status);
 
       const data = result.data || {};
       const links = Array.isArray(data.shareLinks) ? data.shareLinks : [];
@@ -324,58 +320,41 @@ export async function onRequest({ request, env }) {
         normalizeRole(l.role) === role &&
         (!sessionId || String(l.sessionId) === String(sessionId)) &&
         isLinkValid(l)
-      ) || links.find(l => normalizeRole(l.role) === role && isLinkValid(l));
+      ) || links.find(l => isLinkValid(l));
 
-      const anySessionLink = links.find(l => (!sessionId || String(l.sessionId) === String(sessionId)) && isLinkValid(l));
-      const fallbackUrl = anySessionLink?.shareUrl || data.shareUrl || data.shareURL || data.p2pUrl || data.url;
-      const shareUrl = exactLink?.shareUrl || fallbackUrl;
-
+      const shareUrl = exactLink?.shareUrl || data.shareUrl || data.videoUrl || data.VideoUrl || data.url;
       if (!shareUrl) {
-        return json({ error: "ASCAM không trả về đường dẫn phát video.", requestedRole: role }, 502);
+        return json({ error: "ASCAM chưa trả về link chia sẻ cho đơn này." }, 502);
       }
-
-      const actualRole = exactLink ? normalizeRole(exactLink.role) : normalizeRole(anySessionLink?.role || data.role || "overview");
 
       return json({
         shareUrl,
-        requestedRole: role,
-        actualRole,
-        roleMatched: Boolean(exactLink) && actualRole === role,
-        sessionId: exactLink?.sessionId || anySessionLink?.sessionId || sessionId || null,
-        expiresAt: exactLink?.expiresAt || data.expiresAt || null,
-        storage: exactLink?.storage || data.shareStorage || storagePref,
-        shareLinks: sanitizeOrderPayload(links),
+        sessionId: exactLink?.sessionId || sessionId || null,
+        expiresAt: exactLink?.expiresAt || data.shareExpiresAt || null,
+        storage: exactLink?.storage || data.shareStorage || storageMode,
       });
     }
 
-    // 5. STREAM TRỰC TIẾP TRÊN HTML5 VIDEO PLAYER & TẢI FILE MP4
+    // 5. LUỒNG VIDEO TRỰC TIẾP (/sessions/{id}/video) - HỖ TRỢ HTTP 206 & BỘ ĐỆM MƯỢT
     if ((path === "stream" || path === "download") && method === "GET") {
-      // Bảo vệ tuyệt đối: Chặn cứng camId / cameraId
       if (url.searchParams.has("camId") || url.searchParams.has("cameraId")) {
-        return json({ error: "Đã chặn tham số camId để bảo vệ phần mềm ASCAM.", code: "CAMID_BLOCKED" }, 410);
+        return json({ error: "Chặn tham số camId để bảo vệ ASCAM.", code: "CAMID_BLOCKED" }, 410);
       }
-
       const sessionId = url.searchParams.get("sessionId") || "";
       if (!safeSession(sessionId)) return json({ error: "Session ID không hợp lệ." }, 400);
 
-      // Mặc định /api/stream dùng endpoint gốc của session (/sessions/{id}/video) để phát ngay không cần ghép
-      // Chỉ dùng /videos/{id}/download?merged=1 khi người dùng bấm Tải file (/api/download) hoặc yêu cầu rõ mode=merged
-      const useMergedEndpoint = path === "download" || url.searchParams.get("mode") === "merged";
-      const upstreamPath = useMergedEndpoint
-        ? `/videos/${encodeURIComponent(sessionId)}/download?merged=1`
-        : `/sessions/${encodeURIComponent(sessionId)}/video`;
+      // Tuyệt đối dùng /sessions/{id}/video để xem trực tiếp, không gọi ?merged=1 khi stream
+      const upstreamPath = `/sessions/${encodeURIComponent(sessionId)}/video`;
 
       const headers = new Headers({
         Authorization: `Bearer ${env.ASCAM_API_TOKEN}`,
         Accept: "video/mp4, video/*;q=0.9, application/octet-stream;q=0.8, */*;q=0.1",
-        "Cache-Control": "no-store",
       });
       const range = request.headers.get("Range");
       if (range) headers.set("Range", range);
 
-      const timeoutMs = useMergedEndpoint ? 45000 : 20000;
       const connectController = new AbortController();
-      const connectTimer = setTimeout(() => connectController.abort(), timeoutMs);
+      const connectTimer = setTimeout(() => connectController.abort(), 30000);
       const streamSignal = request.signal ? AbortSignal.any([request.signal, connectController.signal]) : connectController.signal;
 
       let response;
@@ -385,14 +364,11 @@ export async function onRequest({ request, env }) {
           headers,
           signal: streamSignal,
           redirect: "follow",
-          cache: "no-store",
         });
-      } catch (error) {
+      } catch {
         const timedOut = connectController.signal.aborted && !request.signal?.aborted;
         return json({
-          error: timedOut
-            ? "Luồng video trực tiếp phản hồi chậm. Hãy sử dụng chế độ CDN/P2P."
-            : "Không kết nối được luồng video từ ASCAM.",
+          error: timedOut ? "Quá thời gian kết nối video." : "Không kết nối được luồng video.",
         }, timedOut ? 504 : 502);
       } finally {
         clearTimeout(connectTimer);
@@ -400,17 +376,15 @@ export async function onRequest({ request, env }) {
 
       if (!response.ok && response.status !== 206) {
         try { await response.body?.cancel(); } catch {}
-        return json({ error: `ASCAM trả mã lỗi HTTP ${response.status} khi mở luồng video.` }, response.status);
+        return json({ error: `ASCAM HTTP ${response.status}` }, response.status);
       }
 
       const outputHeaders = new Headers();
       for (const key of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"]) {
         if (response.headers.has(key)) outputHeaders.set(key, response.headers.get(key));
       }
-      if (!outputHeaders.has("Content-Type")) {
-        outputHeaders.set("Content-Type", "video/mp4");
-      }
-      outputHeaders.set("Cache-Control", "private, no-store, no-transform");
+      if (!outputHeaders.has("Content-Type")) outputHeaders.set("Content-Type", "video/mp4");
+      outputHeaders.set("Cache-Control", "private, max-age=3600");
       outputHeaders.set("Content-Disposition", `${path === "stream" ? "inline" : "attachment"}; filename="ASCAM-${sessionId}.mp4"`);
       return new Response(response.body, { status: response.status, headers: outputHeaders });
     }
