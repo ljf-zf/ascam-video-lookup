@@ -119,7 +119,7 @@
     /* BỐ CỤC CHÍNH 2 CỘT (3A WORKSPACE) */
     #appScreen {
       display: grid;
-      grid-template-columns: 340px 1fr;
+      grid-template-columns: 330px 1fr;
       height: 100vh;
       width: 100vw;
       overflow: hidden;
@@ -437,18 +437,47 @@
       border-color: var(--primary);
     }
 
-    /* SÂN KHẤU VIDEO CHÍNH (2B DUAL-CAM & 1A P2P/CDN) */
+    /* SÂN KHẤU VIDEO CHÍNH */
     .stage-container {
       flex: 1;
-      padding: 14px 18px;
+      padding: 12px 18px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       overflow: hidden;
       min-height: 0;
     }
 
-    /* Lưới 2 màn hình song song (2B) */
+    /* SÂN KHẤU 1 (MẶC ĐỊNH): LUỒNG P2P / CDN TRỰC TUYẾN TỐC ĐỘ CAO (KHÔNG CHỜ GHÉP MP4) */
+    #p2pStage {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      background: var(--dark-stage);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 2px solid var(--border-strong);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #p2pTransformBox {
+      width: 100%;
+      height: 100%;
+      transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+      transform-origin: center center;
+    }
+
+    #p2pFrame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    /* SÂN KHẤU 2 (TÙY CHỌN): 2 MÀN HÌNH MP4 SONG SONG */
     #dualStage {
       flex: 1;
       display: grid;
@@ -459,12 +488,6 @@
       min-height: 0;
       width: 100%;
     }
-
-    #dualStage.single-overview { grid-template-columns: 1fr; }
-    #dualStage.single-overview #camBoxWaybill { display: none; }
-
-    #dualStage.single-waybill { grid-template-columns: 1fr; }
-    #dualStage.single-waybill #camBoxOverview { display: none; }
 
     .cam-card {
       position: relative;
@@ -499,43 +522,12 @@
       pointer-events: none;
     }
 
-    .cam-actions-right {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      z-index: 10;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .cam-expand-btn {
-      background: rgba(15, 23, 42, 0.76);
-      backdrop-filter: blur(6px);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.2);
-      padding: 4px 9px;
-      border-radius: 8px;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .cam-expand-btn:hover { background: var(--primary); border-color: var(--primary); }
-
-    /* Màn 1 (Trái): Hiển thị trực tiếp thẻ <video> để Chrome cấp 100% ưu tiên giải mã phần cứng GPU */
     .overview-viewport {
       position: relative;
       width: 100%;
       height: 100%;
       overflow: hidden;
       background: #000;
-      cursor: grab;
-    }
-
-    #OverviewZoomWrap {
-      width: 100%;
-      height: 100%;
-      transition: transform 0.12s ease-out;
-      transform-origin: center center;
     }
 
     #mainVideo {
@@ -549,7 +541,6 @@
       background: #000;
     }
 
-    /* Màn 2 (Phải): Vẽ trực tiếp 50% nửa dưới (Mã QR Vận đơn) bằng GPU Canvas desynchronized */
     .waybill-viewport {
       position: relative;
       width: 100%;
@@ -558,7 +549,6 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: grab;
       background: #000;
     }
 
@@ -567,40 +557,41 @@
       height: 100%;
       object-fit: fill;
       display: block;
-      transition: transform 0.12s ease-out;
-      transform-origin: center center;
     }
 
-    /* Khung P2P / CDN Nhanh (1A) */
-    #p2pStage {
-      flex: 1;
-      width: 100%;
-      height: 100%;
-      background: var(--dark-stage);
-      border-radius: 14px;
-      overflow: hidden;
-      border: 2px solid var(--border-strong);
-      position: relative;
-    }
-
-    #p2pFrame {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      display: block;
-    }
-
-    /* THANH ĐIỀU KHIỂN VIDEO & CHẾ ĐỘ XEM DƯỚI ĐÁY */
+    /* THANH ĐIỀU KHIỂN DƯỚI ĐÁY */
     .control-bar {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 10px 14px;
+      padding: 9px 14px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
+    }
+
+    .p2p-zoom-tools {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .p2p-zoom-tools label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .p2p-zoom-tools input[type="range"] {
+      width: 90px;
+      accent-color: var(--primary);
+      cursor: pointer;
     }
 
     .playback-controls {
@@ -644,7 +635,7 @@
     }
 
     .mode-btn {
-      padding: 7px 13px;
+      padding: 7px 12px;
       border-radius: 9px;
       border: 1px solid var(--border);
       background: var(--bg);
@@ -677,10 +668,10 @@
     @media (max-width: 960px) {
       body { height: auto; overflow: auto; }
       #appScreen { grid-template-columns: 1fr; height: auto; overflow: visible; }
-      .sidebar-col { height: auto; max-height: 44vh; border-right: 0; border-bottom: 1px solid var(--border); }
+      .sidebar-col { height: auto; max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
       .main-col { height: auto; }
       #dualStage { grid-template-columns: 1fr; }
-      #p2pStage { min-height: 65vh; }
+      #p2pStage { min-height: 68vh; }
     }
   </style>
 </head>
@@ -692,7 +683,7 @@
       <div class="login-logo">📦</div>
       <div>
         <h1 style="font-size:18px;font-weight:800">ASCAM Video Lookup</h1>
-        <p style="font-size:12px;color:var(--muted);margin-top:2px">Hệ thống tra cứu video đóng gói 2 góc cam</p>
+        <p style="font-size:12px;color:var(--muted);margin-top:2px">Tra cứu video đóng gói P2P / CDN tức thì</p>
       </div>
       <input id="loginPass" type="password" class="login-input" placeholder="Nhập mật khẩu truy cập…" required autocomplete="current-password" />
       <button id="loginBtn" type="submit" class="btn-primary">Đăng nhập →</button>
@@ -753,14 +744,14 @@
       </div>
     </aside>
 
-    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH SONG SONG (70%) -->
+    <!-- CỘT PHẢI: TRÌNH PHÁT P2P TỨC THÌ & CẮT GÓC THÔNG MINH (70%) -->
     <section class="main-col">
 
       <!-- Trạng thái chờ khi chưa chọn đơn -->
       <div id="emptyState">
         <div style="font-size:42px">⚡</div>
-        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Nhập mã đơn hoặc chọn đơn ở cột trái để xem ngay</h2>
-        <p style="font-size:13px;max-width:440px">Công nghệ cắt khúc 1MB Byte-Range & Bộ nhớ đệm RAM Cloudflare giúp hiển thị hình ảnh ngay lập tức.</p>
+        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Nhập mã đơn để phát trực tiếp qua P2P / CDN (Không chờ ghép MP4)</h2>
+        <p style="font-size:13px;max-width:460px">Hệ thống sử dụng trực tiếp luồng P2P/CDN gốc của ASCAM, không bắt máy cửa hàng ghép file MP4, kèm bộ phóng to góc Toàn cảnh và Vận đơn QR.</p>
       </div>
 
       <!-- Khung làm việc khi đã mở đơn -->
@@ -781,8 +772,8 @@
 
           <div class="work-actions">
             <button type="button" id="btnSaveOrder" class="action-chip" title="Lưu đơn cần kiểm tra">⭐ Lưu</button>
-            <a id="btnDownloadMp4" href="#" class="action-chip" title="Tải file video MP4">⬇️ MP4</a>
-            <button type="button" id="btnOpenShareTab" class="action-chip" title="Mở trang P2P/CDN ở tab mới">↗ Tab P2P</button>
+            <a id="btnDownloadMp4" href="#" class="action-chip" title="Tải file video MP4">⬇️ Tải MP4</a>
+            <button type="button" id="btnOpenShareTab" class="action-chip" title="Mở trang P2P/CDN ở tab mới">↗ Tab riêng</button>
           </div>
         </header>
 
@@ -792,56 +783,61 @@
         <!-- Vùng phát Video -->
         <div class="stage-container">
 
-          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG (TRÁI = TOÀN CẢNH | PHẢI = VẬN ĐƠN QR) -->
-          <div id="dualStage">
-            <!-- Màn 1: Camera Toàn Cảnh (Nửa trên - Giải mã trực tiếp bằng phần cứng GPU) -->
+          <!-- SÂN KHẤU CHÍNH (MẶC ĐỊNH): LUỒNG P2P / CDN TỨC THÌ (KHÔNG BAO GIỜ ĐỢI GHÉP MP4 2 PHÚT) -->
+          <div id="p2pStage">
+            <div id="p2pTransformBox">
+              <iframe id="p2pFrame" scrolling="no" allow="autoplay; fullscreen"></iframe>
+            </div>
+          </div>
+
+          <!-- SÂN KHẤU PHỤ (TÙY CHỌN): 2 MÀN HÌNH MP4 -->
+          <div id="dualStage" class="hidden">
             <div id="camBoxOverview" class="cam-card">
-              <span class="cam-badge">⛶ CAM 1 · TOÀN CẢNH (BÀN ĐÓNG)</span>
-              <div class="cam-actions-right">
-                <button type="button" id="btnZoomOverview" class="cam-expand-btn" title="Phóng to cận cảnh bàn đóng gói">🔍 Zoom</button>
-                <button type="button" id="btnExpandOverview" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Toàn cảnh">⤢ Phóng to</button>
-              </div>
-              <div class="overview-viewport" id="overviewViewport" title="Lăn chuột để Zoom bàn đóng gói">
-                <div id="OverviewZoomWrap">
-                  <video id="mainVideo" playsinline preload="auto"></video>
-                </div>
+              <span class="cam-badge">⛶ CAM 1 · TOÀN CẢNH (MP4)</span>
+              <div class="overview-viewport">
+                <video id="mainVideo" playsinline preload="metadata"></video>
               </div>
             </div>
 
-            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Vẽ bằng GPU Canvas desynchronized) -->
             <div id="camBoxWaybill" class="cam-card">
-              <span class="cam-badge">📄 CAM 2 · VẬN ĐƠN (SOI MÃ QR)</span>
-              <div class="cam-actions-right">
-                <button type="button" id="btnZoomWaybill" class="cam-expand-btn" title="Phóng to cận cảnh mã QR">🔍 Zoom QR</button>
-                <button type="button" id="btnExpandWaybill" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Vận đơn">⤢ Phóng to</button>
-              </div>
-              <div class="waybill-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
+              <span class="cam-badge">📄 CAM 2 · VẬN ĐƠN QR (MP4)</span>
+              <div class="waybill-viewport">
                 <canvas id="waybillCanvas"></canvas>
               </div>
             </div>
           </div>
 
-          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL -->
-          <div id="p2pStage" class="hidden">
-            <iframe id="p2pFrame" allow="autoplay; fullscreen"></iframe>
-          </div>
-
-          <!-- Thanh điều khiển đồng bộ & Chuyển chế độ 2B / 1A -->
+          <!-- Thanh điều khiển góc nhìn P2P & Chuyển chế độ -->
           <div class="control-bar">
-            <div id="html5Controls" class="playback-controls">
-              <button type="button" id="btnPlayPause" class="ctrl-btn" title="Phát / Tạm dừng">▶️ Phát</button>
-              <button type="button" id="btnRew" class="ctrl-btn" title="Lùi 5 giây">⏪ 5s</button>
-              <button type="button" id="btnFwd" class="ctrl-btn" title="Tua 5 giây">⏩ 5s</button>
-              <input id="seekSlider" type="range" min="0" max="100" step="0.1" value="0" />
-              <span id="timeDisplay">00:00 / 00:00</span>
-              <button type="button" id="btnSpeed" class="ctrl-btn" title="Tốc độ phát">1x</button>
+            <!-- Cụm chỉnh Zoom & Vị trí trực tiếp trên luồng P2P -->
+            <div id="p2pZoomBar" class="p2p-zoom-tools">
+              <label title="Phóng to khung hình P2P">
+                🔍 Zoom: <b id="lblP2PScale">1.0x</b>
+                <input id="rngP2PScale" type="range" min="1" max="3.2" step="0.05" value="1" />
+              </label>
+              <label title="Trượt lên góc Toàn cảnh hoặc trượt xuống góc Vận đơn QR">
+                ↕️ Góc dọc:
+                <input id="rngP2PShiftY" type="range" min="-45" max="45" step="1" value="0" />
+              </label>
+              <button type="button" id="btnResetP2PView" class="ctrl-btn" title="Đưa khung hình về chuẩn để bấm thanh tua">🔄 Chuẩn</button>
             </div>
 
+            <!-- Cụm điều khiển khi dùng chế độ 2 màn hình MP4 -->
+            <div id="html5Controls" class="playback-controls hidden">
+              <button type="button" id="btnPlayPause" class="ctrl-btn">▶️ Phát</button>
+              <button type="button" id="btnRew" class="ctrl-btn">⏪ 5s</button>
+              <button type="button" id="btnFwd" class="ctrl-btn">⏩ 5s</button>
+              <input id="seekSlider" type="range" min="0" max="100" step="0.1" value="0" />
+              <span id="timeDisplay">00:00 / 00:00</span>
+              <button type="button" id="btnSpeed" class="ctrl-btn">1x</button>
+            </div>
+
+            <!-- Các nút chọn góc nhìn tức thì -->
             <div class="mode-switcher">
-              <button type="button" id="viewModeDual" class="mode-btn active" title="Xem song song 2 màn hình Toàn cảnh & Vận đơn (2B)">🖥️ 2 Màn hình</button>
-              <button type="button" id="viewModeOverview" class="mode-btn" title="Chỉ xem góc Toàn cảnh">⛶ Toàn cảnh</button>
-              <button type="button" id="viewModeWaybill" class="mode-btn" title="Chỉ xem góc Vận đơn QR">📄 Vận đơn</button>
-              <button type="button" id="viewModeP2P" class="mode-btn" title="Phát qua giao diện Share P2P của ASCAM">⚡ CDN / P2P</button>
+              <button type="button" id="btnPresetP2PFull" class="mode-btn active" title="Xem luồng P2P/CDN trực tiếp (Hiện đầy đủ nút bấm & thanh tua)">⚡ P2P Chuẩn</button>
+              <button type="button" id="btnPresetP2POverview" class="mode-btn" title="Phóng to vào góc Bàn đóng gói (Nửa trên) ngay trên luồng P2P">⛶ P2P Toàn cảnh</button>
+              <button type="button" id="btnPresetP2PWaybill" class="mode-btn" title="Phóng to vào góc Soi mã QR vận đơn (Nửa dưới) ngay trên luồng P2P">📄 P2P Vận đơn QR</button>
+              <button type="button" id="btnModeDualMp4" class="mode-btn" title="Tách 2 màn hình bằng file MP4 (Chỉ dùng cho đơn đã ghép sẵn MP4)">🖥️ 2 Màn hình (MP4)</button>
             </div>
           </div>
 
@@ -858,24 +854,19 @@
     const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
     const show = (id, vis = true) => { const el = $(id); if (el) el.classList.toggle("hidden", !vis); };
 
-    const KEY_HISTORY = "avl-history-v4";
-    const KEY_SAVED = "avl-saved-v4";
+    const KEY_HISTORY = "avl-history-v5";
+    const KEY_SAVED = "avl-saved-v5";
 
     let currentOrder = null;
     let currentSessions = [];
     let currentSession = null;
-    let loadedSessionId = null;
-    let currentViewMode = "dual";
-    let overviewZoom = 1;
-    let waybillZoom = 1;
+    let activeShareUrl = "";
+    let loadedMp4SessionId = null;
     let currentPlaybackSpeed = 1;
     let vfcId = null;
     let rafId = null;
-    let retryTimer = null;
-    let retryCount = 0;
     let toastTimer = null;
     let wbCtx = null;
-    const prewarmedSet = new Set();
 
     function esc(s = "") {
       return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -901,7 +892,7 @@
       box.classList.toggle("error", isErr);
       box.classList.remove("hidden");
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => box.classList.add("hidden"), 2500);
+      toastTimer = setTimeout(() => box.classList.add("hidden"), 2600);
     }
 
     async function api(path, opts = {}) {
@@ -925,40 +916,12 @@
         return data;
       } catch (err) {
         if (ctrl.signal.aborted) {
-          throw new Error("Máy chủ cửa hàng đang bận, vui lòng thử lại.");
+          throw new Error("Máy chủ cửa hàng phản hồi chậm, vui lòng thử lại.");
         }
         throw err;
       } finally {
         clearTimeout(timer);
       }
-    }
-
-    function extractSid(item) {
-      if (!item) return "";
-      if (item.sessionId || item.id) return String(item.sessionId || item.id);
-      if (Array.isArray(item.sessions) && item.sessions[0]) {
-        return String(item.sessions[0].sessionId || item.sessions[0].id || "");
-      }
-      return "";
-    }
-
-    // Yêu cầu Worker nạp sẵn khúc 1MB đầu tiên vào RAM khi người dùng rê chuột lên đơn hàng
-    function triggerServerPrewarm(sessionId) {
-      const sId = String(sessionId || "");
-      if (!sId || prewarmedSet.has(sId)) return;
-      prewarmedSet.add(sId);
-      fetch(`/api/prewarm?sessionId=${encodeURIComponent(sId)}`, { credentials: "same-origin" }).catch(() => {});
-    }
-
-    function bindHoverPrewarm(container, items) {
-      if (!container) return;
-      container.querySelectorAll("[data-idx]").forEach(btn => {
-        const item = items[Number(btn.dataset.idx)];
-        const sId = extractSid(item);
-        if (!sId) return;
-        btn.addEventListener("mouseenter", () => triggerServerPrewarm(sId), { passive: true });
-        btn.addEventListener("touchstart", () => triggerServerPrewarm(sId), { passive: true });
-      });
     }
 
     function switchTab(tab) {
@@ -976,6 +939,25 @@
       } catch { return []; }
     }
 
+    function extractDirectShareUrl(session, order) {
+      const now = Date.now() + 30000;
+      const links = [
+        ...(Array.isArray(session?.shareLinks) ? session.shareLinks : []),
+        ...(Array.isArray(order?.shareLinks) ? order.shareLinks : []),
+      ];
+      for (const l of links) {
+        if (l?.shareUrl && (!l.expiresAt || new Date(l.expiresAt).getTime() > now)) {
+          return l.shareUrl;
+        }
+      }
+      const direct = session?.shareUrl || session?.videoUrl || session?.VideoUrl || order?.shareUrl || order?.videoUrl || order?.VideoUrl;
+      const exp = session?.shareExpiresAt || order?.shareExpiresAt;
+      if (direct && (!exp || new Date(exp).getTime() > now)) {
+        return direct;
+      }
+      return "";
+    }
+
     function makeSnapshot(orderObj, sessObj) {
       const s = sessObj || orderObj || {};
       const code = orderObj?.orderCode || orderObj?.OrderCode || orderObj?.rawCode || orderObj?.code || "";
@@ -988,7 +970,7 @@
         packedAt: s.packedAt || s.startedAt || orderObj?.packedAt || new Date().toISOString(),
         durationSec: s.durationSec || orderObj?.durationSec || 0,
         status: s.status || orderObj?.status || "completed",
-        shareUrl: s.shareUrl || orderObj?.shareUrl || "",
+        shareUrl: extractDirectShareUrl(s, orderObj),
         at: new Date().toISOString(),
       };
     }
@@ -1054,7 +1036,6 @@
       const hEl = $("listHistory");
       if (hEl) {
         hEl.innerHTML = renderItems(hist, "Chưa có lịch sử tra cứu.");
-        bindHoverPrewarm(hEl, hist);
         hEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = hist[Number(b.dataset.idx)];
@@ -1066,7 +1047,6 @@
       const sEl = $("listSaved");
       if (sEl) {
         sEl.innerHTML = renderItems(saved, "Chưa có đơn nào được đánh dấu.");
-        bindHoverPrewarm(sEl, saved);
         sEl.querySelectorAll("[data-idx]").forEach(b => {
           b.addEventListener("click", () => {
             const snap = saved[Number(b.dataset.idx)];
@@ -1076,7 +1056,7 @@
       }
     }
 
-    // TÌM KIẾM ĐƠN HÀNG & MỞ NGAY KẾT QUẢ ĐẦU TIÊN
+    // TÌM KIẾM ĐƠN HÀNG & MỞ NGAY LUỒNG P2P
     let lastSearchResults = [];
 
     async function doSearch(rawQuery) {
@@ -1088,7 +1068,7 @@
       switchTab("results");
 
       try {
-        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 20000 });
+        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 18000 });
         const items = Array.isArray(data?.items) ? data.items : [];
         lastSearchResults = items;
         setText("badgeResults", items.length);
@@ -1113,8 +1093,6 @@
               }).join("")
             : `<div class="empty-box">Không tìm thấy đơn khớp "${esc(q)}" (đã quét ${data.scannedRecords || 0}/${data.totalRecords || 0} đơn).</div>`;
 
-          bindHoverPrewarm(listEl, items);
-
           listEl.querySelectorAll("[data-idx]").forEach(b => {
             b.addEventListener("click", () => {
               listEl.querySelectorAll(".order-item").forEach(x => x.classList.remove("active"));
@@ -1125,10 +1103,8 @@
           });
         }
 
-        // Mở luôn kết quả đầu tiên ngay lập tức để người dùng không phải tốn thêm 1 cú click
         if (items.length >= 1) {
           openOrderInstant(items[0]);
-          if (items[1]) triggerServerPrewarm(extractSid(items[1]));
         }
       } catch (err) {
         toast(err.message || "Lỗi khi tìm kiếm.", true);
@@ -1140,41 +1116,20 @@
     async function openOrderInstant(rawItem) {
       const order = rawItem?.order || rawItem?.data?.order || rawItem;
       const code = order?.orderCode || order?.OrderCode || order?.rawCode || order?.code || "";
-      const hasImmediateSession = Boolean(order?.sessionId || order?.id || (Array.isArray(order?.sessions) && order.sessions.length > 0));
 
-      if (hasImmediateSession) {
-        currentOrder = order;
-        currentSessions = Array.isArray(order.sessions) && order.sessions.length ? order.sessions : [order];
-        currentSession = currentSessions[0];
+      currentOrder = order;
+      currentSessions = Array.isArray(order?.sessions) && order.sessions.length ? order.sessions : [order];
+      currentSession = currentSessions[0];
 
-        show("emptyState", false);
-        show("orderWorkspace", true);
-        addHistory(currentOrder, currentSession);
-        updateSaveButton();
-        renderOrderHeader();
-        renderSessionBar();
-        loadCurrentSessionVideo();
-        return;
-      }
+      show("emptyState", false);
+      show("orderWorkspace", true);
+      addHistory(currentOrder, currentSession);
+      updateSaveButton();
+      renderOrderHeader();
+      renderSessionBar();
 
-      if (!code) return;
-      try {
-        const full = await api("order?code=" + encodeURIComponent(code));
-        const fullOrder = full?.order || full?.data?.order || full;
-        currentOrder = fullOrder;
-        currentSessions = Array.isArray(fullOrder?.sessions) && fullOrder.sessions.length ? fullOrder.sessions : [fullOrder];
-        currentSession = currentSessions[0];
-
-        show("emptyState", false);
-        show("orderWorkspace", true);
-        addHistory(currentOrder, currentSession);
-        updateSaveButton();
-        renderOrderHeader();
-        renderSessionBar();
-        loadCurrentSessionVideo();
-      } catch (err) {
-        toast(err.message || "Không tải được đơn hàng.", true);
-      }
+      // Khởi chạy ngay luồng P2P / CDN (Không chờ ghép MP4)
+      await launchInstantP2PStream();
     }
 
     function renderOrderHeader() {
@@ -1216,44 +1171,73 @@
         }).join("");
 
       bar.querySelectorAll("[data-sess-idx]").forEach(btn => {
-        const s = currentSessions[Number(btn.dataset.sessIdx)];
-        btn.addEventListener("mouseenter", () => triggerServerPrewarm(extractSid(s)), { passive: true });
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
           bar.querySelectorAll(".sess-btn").forEach(x => x.classList.remove("active"));
           btn.classList.add("active");
-          currentSession = s;
+          currentSession = currentSessions[Number(btn.dataset.sessIdx)];
           renderOrderHeader();
-          loadCurrentSessionVideo();
+          await launchInstantP2PStream();
         });
       });
     }
 
-    // ĐỒNG BỘ GPU CANVAS CHO CAM 2 (VẬN ĐƠN QR)
-    function drawWaybillCanvas() {
-      const video = $("mainVideo");
-      const wbCanvas = $("waybillCanvas");
-      if (!video || !wbCanvas || video.readyState < 2) return;
+    // LẤY LINK P2P TỨC THÌ (ƯU TIÊN LINK CÓ SẴN TRONG JSON -> 0 GIÂY CHỜ)
+    async function resolveShareUrl(session) {
+      const existing = extractDirectShareUrl(session, currentOrder);
+      if (existing) return existing;
 
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      if (!vw || !vh) return;
+      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode || currentOrder?.code;
+      const sessionId = session?.sessionId || session?.id;
 
-      const halfH = Math.floor(vh / 2);
+      // Kiểm tra xem trong chi tiết đơn hàng có sẵn shareUrl chưa
+      try {
+        const detail = await api("order?code=" + encodeURIComponent(code), { timeoutMs: 5000 });
+        const dOrder = detail?.order || detail?.data?.order || detail;
+        const fromDetail = extractDirectShareUrl(dOrder?.sessions?.[0] || dOrder, dOrder);
+        if (fromDetail) {
+          session.shareUrl = fromDetail;
+          return fromDetail;
+        }
+      } catch {}
 
-      if (wbCanvas.width !== vw || wbCanvas.height !== halfH) {
-        wbCanvas.width = vw;
-        wbCanvas.height = halfH;
-        wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
+      const res = await api("share", {
+        method: "POST",
+        timeoutMs: 10000,
+        body: JSON.stringify({ orderCode: code, sessionId, role: "overview", storage: "p2p" }),
+      });
+      if (res?.shareUrl) {
+        session.shareUrl = res.shareUrl;
+        return res.shareUrl;
       }
-      if (!wbCtx) wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
-
-      if (wbCtx) {
-        wbCtx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
-      }
+      throw new Error("ASCAM chưa cấp được link P2P cho đơn này.");
     }
 
-    function stopSyncLoop() {
+    // ĐIỀU KHIỂN PHÓNG TO & CẮT GÓC TRỰC TIẾP TRÊN KHUNG P2P
+    function updateP2PTransform(scaleVal, shiftYVal) {
+      const scale = Number(scaleVal) || 1;
+      const shiftY = Number(shiftYVal) || 0;
+      const box = $("p2pTransformBox");
+      if (box) {
+        box.style.transform = `scale(${scale}) translateY(${shiftY}%)`;
+      }
+      setText("lblP2PScale", `${scale.toFixed(1)}x`);
+      if ($("rngP2PScale")) $("rngP2PScale").value = String(scale);
+      if ($("rngP2PShiftY")) $("rngP2PShiftY").value = String(shiftY);
+    }
+
+    function setActiveModeBtn(btnId) {
+      ["btnPresetP2PFull", "btnPresetP2POverview", "btnPresetP2PWaybill", "btnModeDualMp4"].forEach(id => {
+        $(id)?.classList.toggle("active", id === btnId);
+      });
+    }
+
+    function stopMp4Video() {
       const video = $("mainVideo");
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
       if (vfcId && video?.cancelVideoFrameCallback) {
         video.cancelVideoFrameCallback(vfcId);
         vfcId = null;
@@ -1262,13 +1246,58 @@
         cancelAnimationFrame(rafId);
         rafId = null;
       }
+      loadedMp4SessionId = null;
     }
 
-    function startSyncLoop() {
-      stopSyncLoop();
+    // KHỞI CHẠY MẶC ĐỊNH BẰNG LUỒNG P2P TỨC THÌ (KHÔNG BAO GIỜ GỌI GHÉP MP4 KHI MỞ ĐƠN)
+    async function launchInstantP2PStream() {
+      stopMp4Video();
+      show("dualStage", false);
+      show("html5Controls", false);
+      show("p2pStage", true);
+      show("p2pZoomBar", true);
+
+      setActiveModeBtn("btnPresetP2PFull");
+      updateP2PTransform(1, 0);
+
+      if (currentSession?.status === "recording") {
+        toast("Đơn này đang ghi hình tại bàn đóng gói.", true);
+        return;
+      }
+
+      try {
+        const url = await resolveShareUrl(currentSession);
+        const frame = $("p2pFrame");
+        if (frame && activeShareUrl !== url) {
+          activeShareUrl = url;
+          frame.src = url;
+        }
+      } catch (err) {
+        toast(err.message || "Không mở được luồng P2P.", true);
+      }
+    }
+
+    // CHẾ ĐỘ PHỤ: 2 MÀN HÌNH MP4 (CHỈ KHI NGƯỜI DÙNG CHỦ ĐỘNG BẤM NÚT)
+    function drawWaybillCanvas() {
+      const video = $("mainVideo");
+      const wbCanvas = $("waybillCanvas");
+      if (!video || !wbCanvas || video.readyState < 2) return;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return;
+      const halfH = Math.floor(vh / 2);
+      if (wbCanvas.width !== vw || wbCanvas.height !== halfH) {
+        wbCanvas.width = vw;
+        wbCanvas.height = halfH;
+        wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
+      }
+      if (!wbCtx) wbCtx = wbCanvas.getContext("2d", { alpha: false, desynchronized: true });
+      if (wbCtx) wbCtx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
+    }
+
+    function startMp4SyncLoop() {
       const video = $("mainVideo");
       if (!video) return;
-
       if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
         const onFrame = () => {
           drawWaybillCanvas();
@@ -1278,165 +1307,35 @@
         };
         vfcId = video.requestVideoFrameCallback(onFrame);
       } else {
-        let lastDraw = 0;
-        const tick = now => {
-          if (now - lastDraw >= 33) {
-            drawWaybillCanvas();
-            lastDraw = now;
-          }
-          if (!video.paused && !video.ended) {
-            rafId = requestAnimationFrame(tick);
-          }
+        const tick = () => {
+          drawWaybillCanvas();
+          if (!video.paused && !video.ended) rafId = requestAnimationFrame(tick);
         };
         rafId = requestAnimationFrame(tick);
       }
     }
 
-    function getExistingShareUrl(session) {
-      const now = Date.now() + 30000;
-      const links = [
-        ...(Array.isArray(session?.shareLinks) ? session.shareLinks : []),
-        ...(Array.isArray(currentOrder?.shareLinks) ? currentOrder.shareLinks : []),
-      ];
-      for (const l of links) {
-        if (l?.shareUrl && (!l.expiresAt || new Date(l.expiresAt).getTime() > now)) {
-          return l.shareUrl;
-        }
-      }
-      const direct = session?.shareUrl || session?.videoUrl || session?.VideoUrl || currentOrder?.shareUrl || currentOrder?.videoUrl || currentOrder?.VideoUrl;
-      const exp = session?.shareExpiresAt || currentOrder?.shareExpiresAt;
-      if (direct && (!exp || new Date(exp).getTime() > now)) {
-        return direct;
-      }
-      return null;
-    }
+    function switchToDualMp4Mode() {
+      if (!currentSession) return;
+      const sId = String(currentSession.sessionId || currentSession.id || "");
+      if (!sId) return;
 
-    async function ensureShareUrl(session) {
-      const cached = getExistingShareUrl(session);
-      if (cached) return cached;
-      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode || currentOrder?.code;
-      const sessionId = session?.sessionId || session?.id;
-      const res = await api("share", {
-        method: "POST",
-        timeoutMs: 12000,
-        body: JSON.stringify({ orderCode: code, sessionId, role: "overview", storage: "p2p" }),
-      });
-      if (res?.shareUrl) {
-        session.shareUrl = res.shareUrl;
-        return res.shareUrl;
-      }
-      throw new Error("Không lấy được link CDN/P2P.");
-    }
-
-    function setOverviewZoom(z) {
-      overviewZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
-      const wrap = $("OverviewZoomWrap");
-      if (wrap) wrap.style.transform = `scale(${overviewZoom})`;
-      const btn = $("btnZoomOverview");
-      if (btn) btn.textContent = overviewZoom > 1 ? `🔍 ${overviewZoom}x` : "🔍 Zoom";
-    }
-
-    function setWaybillZoom(z) {
-      waybillZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
-      const canvas = $("waybillCanvas");
-      if (canvas) canvas.style.transform = `scale(${waybillZoom})`;
-      const btn = $("btnZoomWaybill");
-      if (btn) btn.textContent = waybillZoom > 1 ? `🔍 ${waybillZoom}x` : "🔍 Zoom QR";
-    }
-
-    function stopCurrentVideoStream() {
-      clearTimeout(retryTimer);
-      stopSyncLoop();
-      const video = $("mainVideo");
-      if (video) {
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
-      }
-      loadedSessionId = null;
-    }
-
-    function startSessionStream(sessionId, isRetry = false) {
-      const sId = String(sessionId || "");
-      const video = $("mainVideo");
-      if (!sId || !video) return;
-
-      if (!isRetry && loadedSessionId === sId && video.getAttribute("src")) {
-        if (video.paused) video.play().catch(() => {});
-        return;
-      }
-
-      clearTimeout(retryTimer);
-      if (!isRetry) retryCount = 0;
-
-      loadedSessionId = sId;
-      video.pause();
-      video.playbackRate = currentPlaybackSpeed;
-      video.src = `/api/stream?sessionId=${encodeURIComponent(sId)}${isRetry ? `&r=${retryCount}` : ""}`;
-      video.play().catch(() => {});
-    }
-
-    async function applyViewMode(mode) {
-      currentViewMode = mode;
-
-      ["Dual", "Overview", "Waybill", "P2P"].forEach(k => {
-        $(`viewMode${k}`)?.classList.toggle("active", k.toLowerCase() === mode);
-      });
-
-      const dualStage = $("dualStage");
-      const video = $("mainVideo");
-      const frame = $("p2pFrame");
-
-      if (mode === "p2p") {
-        if (video) video.pause();
-        show("dualStage", false);
-        show("html5Controls", false);
-        show("p2pStage", true);
-
-        try {
-          const shareUrl = await ensureShareUrl(currentSession);
-          if (frame && frame.src !== shareUrl) frame.src = shareUrl;
-        } catch (err) {
-          toast(err.message, true);
-        }
-        return;
-      }
-
+      setActiveModeBtn("btnModeDualMp4");
       show("p2pStage", false);
+      show("p2pZoomBar", false);
       show("dualStage", true);
       show("html5Controls", true);
 
-      if (dualStage) {
-        dualStage.classList.remove("single-overview", "single-waybill");
-        if (mode === "overview") dualStage.classList.add("single-overview");
-        if (mode === "waybill") dualStage.classList.add("single-waybill");
+      const video = $("mainVideo");
+      if (!video) return;
+
+      if (loadedMp4SessionId !== sId) {
+        loadedMp4SessionId = sId;
+        toast("Đang mở luồng MP4 (Nếu đơn mới chưa ghép sẵn MP4, hãy dùng nút ⚡ P2P Chuẩn để xem ngay)...");
+        video.src = `/api/stream?sessionId=${encodeURIComponent(sId)}`;
+        video.load();
       }
-
-      setText("btnExpandOverview", mode === "overview" ? "⤡ 2 Màn hình" : "⤢ Phóng to");
-      setText("btnExpandWaybill", mode === "waybill" ? "⤡ 2 Màn hình" : "⤢ Phóng to");
-
-      const sId = currentSession?.sessionId || currentSession?.id || "";
-      if (sId) startSessionStream(sId, false);
-      drawWaybillCanvas();
-    }
-
-    function loadCurrentSessionVideo() {
-      stopCurrentVideoStream();
-      setOverviewZoom(1);
-      setWaybillZoom(1);
-      setText("timeDisplay", "00:00 / 00:00");
-      if ($("seekSlider")) $("seekSlider").value = "0";
-
-      const frame = $("p2pFrame");
-      if (frame) frame.src = "about:blank";
-
-      if (currentSession?.status === "recording") {
-        toast("Đơn này đang ghi hình tại bàn đóng gói.", true);
-        return;
-      }
-
-      if (currentViewMode === "p2p") currentViewMode = "dual";
-      applyViewMode(currentViewMode);
+      video.play().catch(() => {});
     }
 
     document.addEventListener("DOMContentLoaded", async () => {
@@ -1462,7 +1361,7 @@
       });
 
       $("btnLogout")?.addEventListener("click", async () => {
-        stopCurrentVideoStream();
+        stopMp4Video();
         await api("logout", { method: "POST" }).catch(() => {});
         show("appScreen", false);
         show("loginScreen", true);
@@ -1495,63 +1394,77 @@
       $("btnOpenShareTab")?.addEventListener("click", async () => {
         if (!currentSession) return;
         try {
-          const url = await ensureShareUrl(currentSession);
+          const url = await resolveShareUrl(currentSession);
           window.open(url, "_blank", "noopener");
         } catch (err) {
           toast(err.message, true);
         }
       });
 
-      $("viewModeDual")?.addEventListener("click", () => applyViewMode("dual"));
-      $("viewModeOverview")?.addEventListener("click", () => applyViewMode("overview"));
-      $("viewModeWaybill")?.addEventListener("click", () => applyViewMode("waybill"));
-      $("viewModeP2P")?.addEventListener("click", () => applyViewMode("p2p"));
+      // CÁC NÚT CHUYỂN GÓC NHÌN P2P TỨC THÌ (0.00 GIÂY, KHÔNG TẢI LẠI STREAM)
+      $("btnPresetP2PFull")?.addEventListener("click", () => {
+        stopMp4Video();
+        show("dualStage", false);
+        show("html5Controls", false);
+        show("p2pStage", true);
+        show("p2pZoomBar", true);
+        setActiveModeBtn("btnPresetP2PFull");
+        updateP2PTransform(1, 0);
+      });
 
-      $("btnExpandOverview")?.addEventListener("click", () => {
-        applyViewMode(currentViewMode === "overview" ? "dual" : "overview");
-      });
-      $("btnExpandWaybill")?.addEventListener("click", () => {
-        applyViewMode(currentViewMode === "waybill" ? "dual" : "waybill");
+      $("btnPresetP2POverview")?.addEventListener("click", () => {
+        stopMp4Video();
+        show("dualStage", false);
+        show("html5Controls", false);
+        show("p2pStage", true);
+        show("p2pZoomBar", true);
+        setActiveModeBtn("btnPresetP2POverview");
+        // Phóng to và dịch lên nửa trên (Góc Bàn đóng gói Toàn cảnh)
+        updateP2PTransform(1.85, 22);
       });
 
-      $("btnZoomOverview")?.addEventListener("click", () => {
-        setOverviewZoom(overviewZoom > 1 ? 1 : 2.0);
+      $("btnPresetP2PWaybill")?.addEventListener("click", () => {
+        stopMp4Video();
+        show("dualStage", false);
+        show("html5Controls", false);
+        show("p2pStage", true);
+        show("p2pZoomBar", true);
+        setActiveModeBtn("btnPresetP2PWaybill");
+        // Phóng to và dịch xuống nửa dưới (Góc Soi mã QR Vận đơn)
+        updateP2PTransform(2.05, -20);
       });
-      $("overviewViewport")?.addEventListener("wheel", e => {
-        e.preventDefault();
-        setOverviewZoom(overviewZoom + (e.deltaY < 0 ? 0.25 : -0.25));
-      }, { passive: false });
 
-      $("btnZoomWaybill")?.addEventListener("click", () => {
-        setWaybillZoom(waybillZoom > 1 ? 1 : 2.2);
+      $("btnResetP2PView")?.addEventListener("click", () => {
+        setActiveModeBtn("btnPresetP2PFull");
+        updateP2PTransform(1, 0);
       });
-      $("waybillViewport")?.addEventListener("wheel", e => {
-        e.preventDefault();
-        setWaybillZoom(waybillZoom + (e.deltaY < 0 ? 0.25 : -0.25));
-      }, { passive: false });
+
+      $("rngP2PScale")?.addEventListener("input", () => {
+        updateP2PTransform($("rngP2PScale").value, $("rngP2PShiftY")?.value || 0);
+      });
+
+      $("rngP2PShiftY")?.addEventListener("input", () => {
+        updateP2PTransform($("rngP2PScale")?.value || 1, $("rngP2PShiftY").value);
+      });
+
+      // Chế độ phụ: 2 màn hình MP4
+      $("btnModeDualMp4")?.addEventListener("click", switchToDualMp4Mode);
 
       const video = $("mainVideo");
       const slider = $("seekSlider");
 
       if (video) {
-        video.addEventListener("loadedmetadata", drawWaybillCanvas);
         video.addEventListener("loadeddata", drawWaybillCanvas);
         video.addEventListener("canplay", drawWaybillCanvas);
-
         video.addEventListener("playing", () => {
-          retryCount = 0;
           setText("btnPlayPause", "⏸️ Dừng");
-          startSyncLoop();
+          startMp4SyncLoop();
         });
-
         video.addEventListener("pause", () => {
           setText("btnPlayPause", "▶️ Phát");
-          stopSyncLoop();
           drawWaybillCanvas();
         });
-
         video.addEventListener("seeked", drawWaybillCanvas);
-
         video.addEventListener("timeupdate", () => {
           drawWaybillCanvas();
           const cur = video.currentTime || 0;
@@ -1559,26 +1472,10 @@
           if (slider && dur > 0) slider.value = String((cur / dur) * 100);
           setText("timeDisplay", `${fmtSec(cur)} / ${fmtSec(dur)}`);
         });
-
-        video.addEventListener("error", () => {
-          const sId = currentSession?.sessionId || currentSession?.id;
-          if (!sId || currentViewMode === "p2p") return;
-
-          if (retryCount < 3) {
-            retryCount++;
-            clearTimeout(retryTimer);
-            retryTimer = setTimeout(() => startSessionStream(sId, true), 1500);
-          }
-        });
       }
 
       $("btnPlayPause")?.addEventListener("click", () => {
         if (!video) return;
-        if (video.error && currentSession) {
-          retryCount = 0;
-          startSessionStream(currentSession.sessionId || currentSession.id, false);
-          return;
-        }
         if (video.paused) video.play().catch(() => {});
         else video.pause();
       });
