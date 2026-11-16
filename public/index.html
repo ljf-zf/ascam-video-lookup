@@ -1,511 +1,1503 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ASCAM Video Lookup</title>
   <style>
-    /* CSS BIẾN & THIẾT LẬP GỐC */
     :root {
-      --bg: #ffffff;
-      --bg-alt: #f9fafb;
-      --text: #111827;
-      --text-muted: #6b7280;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --muted: #64748b;
       --primary: #2563eb;
       --primary-hover: #1d4ed8;
-      --border: #e5e7eb;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --error: #ef4444;
-      --radius: 12px;
-      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      --primary-soft: #eff6ff;
+      --success: #16a34a;
+      --success-soft: #dcfce7;
+      --warn: #d97706;
+      --warn-soft: #fef3c7;
+      --danger: #dc2626;
+      --danger-soft: #fee2e2;
+      --dark-stage: #090d16;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
-    button { cursor: pointer; border: none; background: none; font-size: inherit; color: inherit; transition: var(--transition); outline: none; }
-    input { outline: none; font-family: inherit; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
     .hidden { display: none !important; }
-    svg { width: 20px; height: 20px; }
 
-    /* TOAST NOTIFICATION (Thay cho thông báo cũ) */
-    #toastContainer { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-    .toast { background: #374151; color: #fff; padding: 12px 24px; border-radius: 30px; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px; opacity: 0; transform: translateY(20px); transition: var(--transition); }
-    .toast.show { opacity: 1; transform: translateY(0); }
-    .toast.error { background: var(--error); }
+    button, input {
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
 
-    /* NAVBAR & TRẠNG THÁI */
-    header { position: fixed; top: 0; left: 0; right: 0; padding: 16px 24px; display: flex; justify-content: flex-end; gap: 16px; z-index: 100; pointer-events: none; }
-    .nav-actions { display: flex; gap: 8px; pointer-events: auto; background: rgba(255,255,255,0.8); backdrop-filter: blur(8px); padding: 4px; border-radius: 30px; border: 1px solid var(--border); }
-    .nav-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text-muted); position: relative; }
-    .nav-btn:hover { background: var(--bg-alt); color: var(--text); }
-    .badge { position: absolute; top: 4px; right: 4px; background: var(--error); color: white; font-size: 10px; font-weight: bold; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
-    .status-dot.online { background: var(--success); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); }
-    .status-dot.offline { background: var(--error); }
+    button {
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-weight: 600;
+      border-radius: 10px;
+      color: var(--text);
+    }
 
-    /* LAYOUT TÌM KIẾM TRUNG TÂM -> LÊN ĐỈNH */
-    #mainLayout { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 24px; transition: var(--transition); justify-content: center; }
-    #mainLayout.has-results { justify-content: flex-start; padding-top: 80px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* THANH TÌM KIẾM */
-    .search-wrapper { width: 100%; max-width: 600px; position: relative; transition: var(--transition); }
-    .search-wrapper form { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 40px; padding: 8px 16px 8px 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: var(--transition); }
-    .search-wrapper form:focus-within { border-color: var(--primary); box-shadow: 0 4px 20px rgba(37, 99, 235, 0.15); }
-    .search-wrapper input { flex: 1; border: none; font-size: 16px; padding: 12px 0; background: transparent; }
-    .search-wrapper button { background: var(--bg-alt); color: var(--text); width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-    .search-wrapper button:hover { background: var(--border); }
-    
-    /* GIAO DIỆN ĐĂNG NHẬP */
-    #loginView { display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center; }
-    .login-box { width: 100%; max-width: 320px; }
-    .login-box input { width: 100%; padding: 16px; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 16px; text-align: center; font-size: 16px; }
-    .login-box button { width: 100%; padding: 16px; border-radius: var(--radius); background: var(--primary); color: white; font-weight: 600; font-size: 16px; }
-    .login-box button:hover { background: var(--primary-hover); }
+    /* MÀN HÌNH ĐĂNG NHẬP */
+    #loginScreen {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      padding: 20px;
+    }
 
-    /* DANH SÁCH KẾT QUẢ TÌM KIẾM (Chỉ hiện khi có nhiều đơn) */
-    #resultsList { width: 100%; max-width: 600px; margin-top: 24px; display: flex; flex-direction: column; gap: 8px; }
-    .result-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: var(--bg-alt); border-radius: var(--radius); border: 1px solid transparent; text-align: left; }
-    .result-item:hover { border-color: var(--border); background: var(--bg); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-    .result-item b { font-size: 16px; display: block; }
-    .result-item small { color: var(--text-muted); font-size: 13px; }
+    .login-card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 26px;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
 
-    /* KHU VỰC VIDEO (Trọng tâm) */
-    #videoArea { width: 100%; max-width: 1000px; margin-top: 32px; display: flex; flex-direction: column; gap: 16px; animation: fadeIn 0.4s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    
-    .order-header { display: flex; justify-content: space-between; align-items: flex-end; padding: 0 8px; }
-    .order-header h2 { font-size: 24px; letter-spacing: -0.5px; }
-    .meta-tags { display: flex; gap: 8px; margin-top: 8px; }
-    .tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: var(--bg-alt); color: var(--text-muted); }
-    .tag.completed { background: rgba(16, 185, 129, 0.1); color: var(--success); }
-    .tag.recording { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+    .login-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+    }
 
-    /* Trình phát Video */
-    .player-wrapper { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 16px; overflow: hidden; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-    .player-stage { width: 100%; height: 100%; position: relative; overflow: hidden; transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1); transform-origin: center center; will-change: transform; }
-    .player-stage video, .player-stage iframe { width: 100%; height: 100%; object-fit: contain; border: none; background: #000; }
-    /* Chế độ cắt & phóng to riêng từng góc Camera từ luồng ghép dọc của ASCAM */
-    .player-wrapper[data-crop="overview"] .player-stage { transform: scale(1.92) translateY(23.5%); }
-    .player-wrapper[data-crop="waybill"] .player-stage { transform: scale(1.92) translateY(-23.5%); }
-    .player-wrapper[data-crop="full"] .player-stage { transform: scale(1) translateY(0); }
-    .empty-player { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #4b5563; gap: 12px; z-index: 2; background: #090d16; }
-    .loading-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(9, 13, 22, 0.72); color: #fff; font-size: 14px; font-weight: 500; z-index: 3; backdrop-filter: blur(4px); }
-    .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.75s linear infinite; }
-    
-    /* Bảng điều khiển Camera */
-    .camera-controls { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
-    .cam-btn { display: flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 30px; background: var(--bg-alt); font-weight: 500; color: var(--text); border: 1px solid var(--border); }
-    .cam-btn:hover { background: var(--bg); border-color: var(--text-muted); }
-    .cam-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
-    .cam-btn.active svg { stroke: white; }
-    .cam-btn svg { width: 18px; height: 18px; stroke: var(--text-muted); }
-    .cam-btn.active svg { stroke: white; }
-    .btn-icon-only { padding: 12px; border-radius: 50%; }
+    .login-input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-size: 14px;
+      text-align: center;
+    }
+    .login-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
 
-    /* Phiên đóng gói (Sessions) */
-    #sessionChips { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-    .session-chip { padding: 6px 16px; font-size: 13px; border-radius: 20px; background: var(--bg-alt); color: var(--text-muted); border: 1px solid transparent; }
-    .session-chip.active { background: var(--bg); border-color: var(--border); color: var(--text); font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
 
-    /* SIDEBAR (Lịch sử / Đã lưu) */
-    #sidebar { position: fixed; top: 0; right: -350px; width: 100%; max-width: 350px; height: 100vh; background: var(--bg); box-shadow: -4px 0 24px rgba(0,0,0,0.1); z-index: 200; transition: right 0.3s ease; display: flex; flex-direction: column; }
-    #sidebar.open { right: 0; }
-    #sidebarScrim { position: fixed; inset: 0; background: rgba(0,0,0,0.2); backdrop-filter: blur(2px); z-index: 150; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
-    #sidebarScrim.visible { opacity: 1; pointer-events: auto; }
-    .sidebar-header { padding: 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
-    .sidebar-content { padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-    
-    @media (max-width: 640px) {
-      .order-header { flex-direction: column; align-items: flex-start; gap: 12px; }
-      .cam-btn { padding: 10px 16px; font-size: 14px; }
+    /* BỐ CỤC CHÍNH 2 CỘT (3A WORKSPACE) */
+    #appScreen {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* CỘT TRÁI: TÌM KIẾM + DANH SÁCH (30%) */
+    .sidebar-col {
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .side-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: -0.3px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+    .status-dot.offline { background: var(--danger); }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .icon-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+    /* Ô tìm kiếm */
+    .search-box {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--bg);
+    }
+    .search-input:focus {
+      background: var(--card);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .search-submit {
+      padding: 0 16px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 10px;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .search-submit:hover { background: var(--primary-hover); }
+
+    /* Tabs Cột Trái */
+    .side-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 8px 14px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      padding: 7px 6px;
+      font-size: 12px;
+      border-radius: 8px;
+      color: var(--muted);
+    }
+    .tab-btn.active {
+      background: var(--card);
+      color: var(--primary);
+      border-color: var(--border);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    .badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--border);
+      color: var(--text);
+    }
+    .tab-btn.active .badge { background: var(--primary-soft); color: var(--primary); }
+
+    /* Danh sách cuộn Cột Trái */
+    .side-list-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+    }
+
+    .item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .order-item {
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .order-item:hover { border-color: var(--primary); background: #f8fbff; }
+    .order-item.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .order-item-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .order-item-code {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .order-item-sub {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      gap: 8px;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .tag.good { background: var(--success-soft); color: var(--success); }
+    .tag.warn { background: var(--warn-soft); color: var(--warn); }
+
+    .empty-box {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    /* CỘT PHẢI: KHUNG VIDEO & ĐIỀU KHIỂN (70%) */
+    .main-col {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    #emptyState {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      gap: 10px;
+      padding: 24px;
+      text-align: center;
+    }
+
+    #orderWorkspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* Thanh Header của Đơn hàng */
+    .work-header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .work-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    #orderTitle {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+
+    .meta-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .meta-pill {
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 3px 9px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+
+    .work-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .action-chip {
+      padding: 6px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      font-size: 12px;
+      color: var(--text);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 600;
+    }
+    .action-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+    .action-chip.saved { background: var(--warn-soft); border-color: #fde68a; color: var(--warn); }
+
+    /* Thanh Chọn Phiên (nếu > 1 phiên) */
+    #sessionBar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 6px 18px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .sess-btn {
+      padding: 4px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      font-size: 11px;
+      background: var(--bg);
+    }
+    .sess-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* SÂN KHẤU VIDEO CHÍNH (2B DUAL-CAM & 1A P2P/CDN) */
+    .stage-container {
+      flex: 1;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* Lưới 2 màn hình song song (2B) */
+    #dualStage {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: center;
+      justify-items: center;
+      min-height: 0;
+      width: 100%;
+    }
+
+    #dualStage.single-overview { grid-template-columns: 1fr; }
+    #dualStage.single-overview #camBoxWaybill { display: none; }
+
+    #dualStage.single-waybill { grid-template-columns: 1fr; }
+    #dualStage.single-waybill #camBoxOverview { display: none; }
+
+    .cam-card {
+      position: relative;
+      width: 100%;
+      max-height: 100%;
+      aspect-ratio: 4 / 3;
+      background: var(--dark-stage);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 2px solid var(--border-strong);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cam-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(6px);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    .cam-expand-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.72);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 4px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+    .cam-expand-btn:hover { background: var(--primary); border-color: var(--primary); }
+
+    /* Màn 1 (Trái): Lấy chính xác 50% nửa trên (Toàn cảnh bàn đóng hàng) */
+    .overview-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #mainVideo {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 200%;
+      object-fit: fill;
+      display: block;
+      background: #000;
+    }
+
+    /* Màn 2 (Phải): Canvas vẽ trực tiếp 50% nửa dưới (Mã QR Vận đơn) từ mainVideo */
+    .waybill-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+    }
+
+    #waybillCanvas {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      display: block;
+      transition: transform 0.12s ease-out;
+      transform-origin: center center;
+    }
+
+    /* Khung P2P / CDN Nhanh (1A) */
+    #p2pStage {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      background: var(--dark-stage);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 2px solid var(--border-strong);
+      position: relative;
+    }
+
+    #p2pFrame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(9, 13, 22, 0.75);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      z-index: 20;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* THANH ĐIỀU KHIỂN VIDEO & CHẾ ĐỘ XEM DƯỚI ĐÁY */
+    .control-bar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .playback-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 240px;
+    }
+
+    .ctrl-btn {
+      padding: 6px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      font-size: 12px;
+    }
+    .ctrl-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+    #seekSlider {
+      flex: 1;
+      accent-color: var(--primary);
+      cursor: pointer;
+      height: 5px;
+    }
+
+    #timeDisplay {
+      font-size: 12px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      min-width: 78px;
+      text-align: right;
+    }
+
+    .mode-switcher {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .mode-btn {
+      padding: 7px 13px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      font-size: 12px;
+    }
+    .mode-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+      box-shadow: 0 3px 10px rgba(37, 99, 235, 0.22);
+    }
+
+    /* TOAST NHỎ GỌN */
+    #toastBox {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      color: #fff;
+      padding: 9px 18px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 9999;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+    }
+    #toastBox.error { background: var(--danger); }
+
+    @media (max-width: 960px) {
+      body { height: auto; overflow: auto; }
+      #appScreen { grid-template-columns: 1fr; height: auto; overflow: visible; }
+      .sidebar-col { height: auto; max-height: 44vh; border-right: 0; border-bottom: 1px solid var(--border); }
+      .main-col { height: auto; }
+      #dualStage { grid-template-columns: 1fr; }
+      #p2pStage { min-height: 65vh; }
     }
   </style>
 </head>
 <body>
 
-  <!-- TOAST NOTIFICATIONS -->
-  <div id="toastContainer"></div>
-
-  <!-- HEADER ICONS -->
-  <header id="appHeader" class="hidden">
-    <div class="nav-actions">
-      <button class="nav-btn" id="btnStatus" title="Trạng thái ASCAM">
-        <div id="ascamIndicator" class="status-dot"></div>
-      </button>
-      <button class="nav-btn" id="btnHistory" title="Lịch sử">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-      </button>
-      <button class="nav-btn" id="btnBookmarks" title="Đã đánh dấu">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-        <span id="bookmarkBadge" class="badge hidden">0</span>
-      </button>
-      <button class="nav-btn" id="btnLogout" title="Đăng xuất">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-      </button>
-    </div>
-  </header>
-
-  <main id="mainLayout">
-    <!-- VIEW ĐĂNG NHẬP -->
-    <div id="loginView" class="hidden">
-      <svg width="48" height="48" fill="none" stroke="var(--primary)" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-      <h2>ASCAM Lookup</h2>
-      <form id="loginForm" class="login-box">
-        <input type="password" id="password" placeholder="Nhập mật khẩu..." required />
-        <button type="submit">Truy cập</button>
-      </form>
-    </div>
-
-    <!-- KHU VỰC TÌM KIẾM CHÍNH -->
-    <div id="searchWrapper" class="search-wrapper hidden">
-      <form id="searchForm">
-        <input type="text" id="query" placeholder="Nhập mã đơn hàng hoặc 4 số cuối..." autocomplete="off" />
-        <button type="submit" id="btnSearch">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-        </button>
-      </form>
-    </div>
-
-    <!-- DANH SÁCH KẾT QUẢ TÌM KIẾM -->
-    <div id="resultsList" class="hidden"></div>
-
-    <!-- KHU VỰC VIDEO -->
-    <div id="videoArea" class="hidden">
-      <div class="order-header">
-        <div>
-          <h2 id="uiOrderCode">MÃ ĐƠN HÀNG</h2>
-          <div class="meta-tags">
-            <span id="uiStatus" class="tag completed">Hoàn tất</span>
-            <span id="uiStation" class="tag">Bàn: —</span>
-            <span id="uiTime" class="tag">Thời gian: —</span>
-          </div>
-        </div>
-        <button id="btnSaveOrder" class="nav-btn" style="border: 1px solid var(--border)" title="Đánh dấu">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-        </button>
+  <!-- 1. MÀN HÌNH ĐĂNG NHẬP -->
+  <main id="loginScreen">
+    <form id="loginForm" class="login-card">
+      <div class="login-logo">📦</div>
+      <div>
+        <h1 style="font-size:18px;font-weight:800">ASCAM Video Lookup</h1>
+        <p style="font-size:12px;color:var(--muted);margin-top:2px">Hệ thống tra cứu video đóng gói 2 góc cam</p>
       </div>
-
-      <div class="player-wrapper" id="playerWrapper" data-crop="overview">
-        <div id="emptyPlayer" class="empty-player">
-          <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-          <p>Chọn góc Camera để phát video</p>
-        </div>
-        <div id="loadingOverlay" class="loading-overlay hidden">
-          <div class="spinner"></div>
-          <span id="loadingText">Đang kết nối luồng P2P tốc độ cao...</span>
-        </div>
-        <div class="player-stage">
-          <video id="videoPlayer" class="hidden" controls autoplay playsinline preload="metadata"></video>
-          <iframe id="shareFrame" class="hidden" allow="autoplay; fullscreen"></iframe>
-        </div>
-      </div>
-
-      <div class="camera-controls">
-        <button class="cam-btn" data-cam="overview" title="Phóng to góc Toàn cảnh (Nửa trên)">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
-          Toàn cảnh
-        </button>
-        <button class="cam-btn" data-cam="waybill" title="Phóng to góc Vận đơn / Mã QR (Nửa dưới)">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-          Vận đơn
-        </button>
-        <button class="cam-btn" data-cam="full" title="Xem đồng thời cả 2 góc trên/dưới">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-          2 Góc
-        </button>
-        <button class="cam-btn" data-cam="merged" title="Tải luồng MP4 trực tiếp">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m-4 4h4m-4 4h4m10-12h4m-4 4h4m-4 4h4M4 4h16c.55 0 1 .45 1 1v14c0 .55-.45 1-1 1H4c-.55 0-1-.45-1-1V5c0-.55.45-1 1-1z"></path></svg>
-          MP4
-        </button>
-        <a class="cam-btn btn-icon-only hidden" id="btnOpenTab" target="_blank" rel="noopener" title="Mở tab gốc toàn màn hình">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-        </a>
-      </div>
-      
-      <div id="sessionChips"></div>
-    </div>
+      <input id="loginPass" type="password" class="login-input" placeholder="Nhập mật khẩu truy cập…" required autocomplete="current-password" />
+      <button id="loginBtn" type="submit" class="btn-primary">Đăng nhập →</button>
+      <p id="loginErr" style="font-size:12px;color:var(--danger)"></p>
+    </form>
   </main>
 
-  <!-- SIDEBAR -->
-  <div id="sidebarScrim"></div>
-  <div id="sidebar">
-    <div class="sidebar-header">
-      <h3 id="sidebarTitle">Danh sách</h3>
-      <button id="btnCloseSidebar" class="nav-btn"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
-    </div>
-    <div id="sidebarList" class="sidebar-content"></div>
+  <!-- 2. GIAO DIỆN WORKSPACE 2 CỘT (3A) -->
+  <div id="appScreen" class="hidden">
+
+    <!-- CỘT TRÁI: TÌM KIẾM & DANH SÁCH (30%) -->
+    <aside class="sidebar-col">
+      <div class="side-header">
+        <div class="brand">
+          <span>📦 ASCAM</span>
+          <span class="status-pill" title="Trạng thái kết nối ASCAM">
+            <i id="statusDot" class="status-dot"></i>
+            <span id="statusText">…</span>
+          </span>
+        </div>
+        <button type="button" id="btnLogout" class="icon-btn" title="Đăng xuất">🚪</button>
+      </div>
+
+      <form id="searchForm" class="search-box">
+        <input id="searchInput" type="search" class="search-input" placeholder="Nhập mã đơn hoặc 4 số cuối…" autocomplete="off" required />
+        <button id="searchBtn" type="submit" class="search-submit" title="Tìm kiếm">🔍 Tìm</button>
+      </form>
+
+      <div class="side-tabs">
+        <button type="button" id="tabResults" class="tab-btn active">
+          📋 Kết quả <span id="badgeResults" class="badge">0</span>
+        </button>
+        <button type="button" id="tabHistory" class="tab-btn">
+          🕘 Lịch sử <span id="badgeHistory" class="badge">0</span>
+        </button>
+        <button type="button" id="tabSaved" class="tab-btn">
+          ⭐ Đã lưu <span id="badgeSaved" class="badge">0</span>
+        </button>
+      </div>
+
+      <div class="side-list-wrap">
+        <div id="panelResults">
+          <div id="listResults" class="item-list">
+            <div class="empty-box">Nhập mã vận đơn hoặc 4 số cuối ở trên để tra cứu.</div>
+          </div>
+        </div>
+
+        <div id="panelHistory" class="hidden">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+            <button type="button" id="btnClearHistory" style="font-size:11px;color:var(--danger);padding:2px 6px">🗑️ Xóa lịch sử</button>
+          </div>
+          <div id="listHistory" class="item-list"></div>
+        </div>
+
+        <div id="panelSaved" class="hidden">
+          <div id="listSaved" class="item-list"></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CỘT PHẢI: TRÌNH PHÁT VIDEO 2 MÀN HÌNH & CDN/P2P (70%) -->
+    <section class="main-col">
+
+      <!-- Trạng thái chờ khi chưa chọn đơn -->
+      <div id="emptyState">
+        <div style="font-size:42px">🎥</div>
+        <h2 style="font-size:16px;font-weight:700;color:var(--text)">Chọn hoặc tìm đơn hàng để xem ngay</h2>
+        <p style="font-size:13px;max-width:420px">Hỗ trợ tách 2 màn hình song song (Toàn cảnh bàn đóng gói + Cận cảnh mã QR vận đơn) và luồng nhanh CDN/P2P.</p>
+      </div>
+
+      <!-- Khung làm việc khi đã mở đơn -->
+      <div id="orderWorkspace" class="hidden">
+
+        <!-- Thanh thông tin đơn -->
+        <header class="work-header">
+          <div class="work-title-group">
+            <span id="orderTitle">—</span>
+            <button type="button" id="btnCopyCode" class="icon-btn" style="width:28px;height:28px;font-size:12px" title="Copy mã vận đơn">📋</button>
+            <span id="orderStatusTag" class="tag good">—</span>
+            <div class="meta-pills">
+              <span id="orderStation" class="meta-pill">👤 —</span>
+              <span id="orderTime" class="meta-pill">🕒 —</span>
+              <span id="orderDuration" class="meta-pill">⏱️ —</span>
+            </div>
+          </div>
+
+          <div class="work-actions">
+            <button type="button" id="btnSaveOrder" class="action-chip" title="Lưu đơn cần kiểm tra">⭐ Lưu</button>
+            <a id="btnDownloadMp4" href="#" class="action-chip" title="Tải file video MP4">⬇️ MP4</a>
+            <button type="button" id="btnOpenShareTab" class="action-chip" title="Mở trang P2P/CDN ở tab mới">↗ Tab P2P</button>
+          </div>
+        </header>
+
+        <!-- Thanh chọn phiên (nếu đơn có nhiều lần đóng gói) -->
+        <div id="sessionBar" class="hidden"></div>
+
+        <!-- Vùng phát Video -->
+        <div class="stage-container">
+
+          <!-- CHẾ ĐỘ 2B: TÁCH 2 MÀN HÌNH SONG SONG (TRÁI = TOÀN CẢNH | PHẢI = VẬN ĐƠN QR) -->
+          <div id="dualStage">
+            <!-- Màn 1: Camera Toàn Cảnh (Nửa trên) -->
+            <div id="camBoxOverview" class="cam-card">
+              <span class="cam-badge">⛶ CAM 1 · TOÀN CẢNH (BÀN ĐÓNG)</span>
+              <button type="button" id="btnExpandOverview" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Toàn cảnh">⤢ Phóng to</button>
+              <div id="videoLoadingOverlay" class="loading-overlay hidden">
+                <span>⏳ <span id="videoLoadingText">Đang tải luồng video…</span></span>
+              </div>
+              <div class="overview-viewport">
+                <video id="mainVideo" playsinline preload="auto"></video>
+              </div>
+            </div>
+
+            <!-- Màn 2: Camera Vận Đơn QR (Nửa dưới - Đồng bộ thời gian thực) -->
+            <div id="camBoxWaybill" class="cam-card">
+              <span class="cam-badge">📄 CAM 2 · VẬN ĐƠN (SOI MÃ QR)</span>
+              <div style="position:absolute;top:10px;right:10px;z-index:10;display:flex;gap:4px">
+                <button type="button" id="btnZoomWaybill" class="cam-expand-btn" title="Phóng to cận cảnh mã QR">🔍 Zoom QR</button>
+                <button type="button" id="btnExpandWaybill" class="cam-expand-btn" title="Phóng to / Thu nhỏ góc Vận đơn">⤢ Phóng to</button>
+              </div>
+              <div class="waybill-viewport" id="waybillViewport" title="Lăn chuột để Zoom cận cảnh mã vận đơn">
+                <canvas id="waybillCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- CHẾ ĐỘ 1A: LUỒNG NHANH CDN / P2P SHAREURL -->
+          <div id="p2pStage" class="hidden">
+            <iframe id="p2pFrame" allow="autoplay; fullscreen"></iframe>
+          </div>
+
+          <!-- Thanh điều khiển đồng bộ & Chuyển chế độ 2B / 1A -->
+          <div class="control-bar">
+            <div id="html5Controls" class="playback-controls">
+              <button type="button" id="btnPlayPause" class="ctrl-btn" title="Phát / Tạm dừng (Phím Space)">▶️ Phát</button>
+              <button type="button" id="btnRew" class="ctrl-btn" title="Lùi 5 giây">⏪ 5s</button>
+              <button type="button" id="btnFwd" class="ctrl-btn" title="Tua 5 giây">⏩ 5s</button>
+              <input id="seekSlider" type="range" min="0" max="100" step="0.1" value="0" />
+              <span id="timeDisplay">00:00 / 00:00</span>
+              <button type="button" id="btnSpeed" class="ctrl-btn" title="Tốc độ phát">1x</button>
+            </div>
+
+            <div class="mode-switcher">
+              <button type="button" id="viewModeDual" class="mode-btn active" title="Xem song song 2 màn hình Toàn cảnh & Vận đơn (2B)">🖥️ 2 Màn hình</button>
+              <button type="button" id="viewModeOverview" class="mode-btn" title="Chỉ xem góc Toàn cảnh">⛶ Toàn cảnh</button>
+              <button type="button" id="viewModeWaybill" class="mode-btn" title="Chỉ xem góc Vận đơn QR">📄 Vận đơn</button>
+              <button type="button" id="viewModeP2P" class="mode-btn" title="Phát tức thì qua luồng CDN / P2P Share (1A)">⚡ CDN / P2P</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
   </div>
 
-  <script>
-    // --- KHỞI TẠO BIẾN & TIỆN ÍCH ---
-    const $ = id => document.getElementById(id);
-    const HISTORY = "avl-hist-v2";
-    const BOOKMARKS = "avl-bm-v2";
-    let selectedOrder = null, selectedSession = null, selectedSessions = [], currentMode = "overview";
+  <div id="toastBox" class="hidden"></div>
 
-    function showToast(msg, isError = false) {
-      const container = $("toastContainer");
-      const toast = document.createElement("div");
-      toast.className = `toast ${isError ? "error" : ""} show`;
-      toast.innerHTML = isError 
-        ? `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> ${msg}`
-        : `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> ${msg}`;
-      container.appendChild(toast);
-      setTimeout(() => { toast.classList.remove("show"); setTimeout(() => toast.remove(), 300); }, 3000);
+  <script>
+    const $ = id => document.getElementById(id);
+    const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
+    const show = (id, vis = true) => { const el = $(id); if (el) el.classList.toggle("hidden", !vis); };
+
+    const KEY_HISTORY = "avl-history-v2";
+    const KEY_SAVED = "avl-saved-v2";
+    const KEY_PREF_MODE = "avl-pref-mode-v2";
+
+    let currentOrder = null;
+    let currentSessions = [];
+    let currentSession = null;
+    let loadedStreamSessionId = null;
+    let currentViewMode = localStorage.getItem(KEY_PREF_MODE) || "dual"; // "dual" | "overview" | "waybill" | "p2p"
+    let waybillZoom = 1;
+    let rafId = null;
+    let toastTimer = null;
+
+    function esc(s = "") {
+      return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
-    function formatTime(v) {
+    function fmtDate(v) {
       if (!v) return "—";
       const d = new Date(v);
-      return isNaN(d.getTime()) ? String(v) : d.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" });
+      return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "2-digit" });
     }
 
-    // --- API CORE ---
+    function fmtSec(sec) {
+      const s = Math.max(0, Math.floor(Number(sec) || 0));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+    }
+
+    function toast(msg, isErr = false) {
+      const box = $("toastBox");
+      if (!box) return;
+      box.textContent = msg;
+      box.classList.toggle("error", isErr);
+      box.classList.remove("hidden");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => box.classList.add("hidden"), 3200);
+    }
+
     async function api(path, opts = {}) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), opts.timeoutMs || 15000);
+      const { timeoutMs = 20000, ...rest } = opts;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
         const res = await fetch("/api/" + path, {
-          credentials: "same-origin", ...opts, signal: controller.signal,
-          headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) }
+          credentials: "same-origin",
+          ...rest,
+          signal: ctrl.signal,
+          headers: { ...(rest.body ? { "Content-Type": "application/json" } : {}), ...(rest.headers || {}) },
         });
-        const data = await res.json().catch(() => ({ error: "Lỗi phản hồi máy chủ." }));
-        if (res.status === 401 && path !== "login") { setView('login'); throw new Error("Phiên hết hạn."); }
-        if (!res.ok) throw new Error(data.error || `Lỗi ${res.status}`);
+        const data = await res.json().catch(() => ({ error: "Phản hồi không hợp lệ." }));
+        if (res.status === 401 && path !== "login") {
+          show("appScreen", false);
+          show("loginScreen", true);
+          throw new Error(data.error || "Phiên đăng nhập hết hạn.");
+        }
+        if (!res.ok) throw new Error(data.error || `Lỗi HTTP ${res.status}`);
         return data;
-      } finally { clearTimeout(timeout); }
-    }
-
-    // --- VIEW QUẢN LÝ ---
-    function setView(view) {
-      $("loginView").classList.add("hidden");
-      $("searchWrapper").classList.add("hidden");
-      $("appHeader").classList.add("hidden");
-      if (view === 'login') {
-        $("loginView").classList.remove("hidden");
-      } else {
-        $("appHeader").classList.remove("hidden");
-        $("searchWrapper").classList.remove("hidden");
-        refreshAscamStatus();
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    async function refreshAscamStatus() {
-      const dot = $("ascamIndicator");
-      dot.className = "status-dot";
+    // QUẢN LÝ TABS CỘT TRÁI
+    function switchTab(tab) {
+      ["Results", "History", "Saved"].forEach(name => {
+        const active = name.toLowerCase() === tab;
+        $(`tab${name}`)?.classList.toggle("active", active);
+        show(`panel${name}`, active);
+      });
+    }
+
+    // LỊCH SỬ & ĐÃ LƯU
+    function getList(key) {
       try {
-        const res = await api("status", { timeoutMs: 5000 });
-        dot.className = `status-dot ${res.ascam === 'connected' ? 'online' : 'offline'}`;
-        $("btnStatus").title = res.message;
-      } catch (e) {
-        dot.className = "status-dot offline";
-        $("btnStatus").title = e.message;
+        const arr = JSON.parse(localStorage.getItem(key) || "[]");
+        return Array.isArray(arr) ? arr : [];
+      } catch { return []; }
+    }
+
+    function addHistory(code, station = "") {
+      if (!code) return;
+      const next = [{ code, station, at: new Date().toISOString() }, ...getList(KEY_HISTORY).filter(x => x.code !== code)].slice(0, 25);
+      try { localStorage.setItem(KEY_HISTORY, JSON.stringify(next)); } catch {}
+      renderSideLists();
+    }
+
+    function isOrderSaved(code) {
+      return getList(KEY_SAVED).some(x => x.code === code);
+    }
+
+    function toggleSaveCurrentOrder() {
+      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode;
+      if (!code) return;
+      const list = getList(KEY_SAVED);
+      const exists = list.some(x => x.code === code);
+      const next = exists
+        ? list.filter(x => x.code !== code)
+        : [{ code, station: currentSession?.stationName || currentOrder?.stationName || "", at: new Date().toISOString() }, ...list];
+      try { localStorage.setItem(KEY_SAVED, JSON.stringify(next)); } catch {}
+      updateSaveButton();
+      renderSideLists();
+      toast(exists ? "Đã bỏ lưu đơn" : "Đã lưu vào danh sách kiểm tra");
+    }
+
+    function updateSaveButton() {
+      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode || "";
+      const saved = isOrderSaved(code);
+      const btn = $("btnSaveOrder");
+      if (!btn) return;
+      btn.textContent = saved ? "★ Đã lưu" : "☆ Lưu";
+      btn.classList.toggle("saved", saved);
+    }
+
+    function renderSideLists() {
+      const hist = getList(KEY_HISTORY);
+      const saved = getList(KEY_SAVED);
+      setText("badgeHistory", hist.length);
+      setText("badgeSaved", saved.length);
+
+      const activeCode = currentOrder?.orderCode || currentOrder?.OrderCode || "";
+
+      const renderItems = (arr, emptyMsg) => arr.length
+        ? arr.map(item => `
+            <button type="button" class="order-item ${item.code === activeCode ? "active" : ""}" data-pick-code="${esc(item.code)}">
+              <span class="order-item-main">
+                <b class="order-item-code">${esc(item.code)}</b>
+                <span class="order-item-sub">
+                  <span>${esc(item.station || "—")}</span>
+                  <span>${fmtDate(item.at)}</span>
+                </span>
+              </span>
+              <span>↗</span>
+            </button>
+          `).join("")
+        : `<div class="empty-box">${emptyMsg}</div>`;
+
+      const hEl = $("listHistory");
+      if (hEl) {
+        hEl.innerHTML = renderItems(hist, "Chưa có lịch sử tra cứu.");
+        hEl.querySelectorAll("[data-pick-code]").forEach(b => b.addEventListener("click", () => selectOrderByCode(b.dataset.pickCode)));
+      }
+
+      const sEl = $("listSaved");
+      if (sEl) {
+        sEl.innerHTML = renderItems(saved, "Chưa có đơn nào được đánh dấu.");
+        sEl.querySelectorAll("[data-pick-code]").forEach(b => b.addEventListener("click", () => selectOrderByCode(b.dataset.pickCode)));
       }
     }
 
-    // --- XỬ LÝ LỊCH SỬ & ĐÁNH DẤU ---
-    const getStore = key => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; } };
-    const setStore = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
-    
-    function saveHistory(code) {
+    // TÌM KIẾM ĐƠN HÀNG
+    let lastSearchResults = [];
+
+    async function doSearch(rawQuery) {
+      const q = (rawQuery || "").trim();
+      if (q.length < 4) return toast("Nhập ít nhất 4 ký tự cuối hoặc mã đơn đầy đủ.", true);
+
+      const btn = $("searchBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+      switchTab("results");
+
+      try {
+        const data = await api("search?q=" + encodeURIComponent(q), { timeoutMs: 25000 });
+        const items = Array.isArray(data?.items) ? data.items : [];
+        lastSearchResults = items;
+        setText("badgeResults", items.length);
+
+        const listEl = $("listResults");
+        if (listEl) {
+          listEl.innerHTML = items.length
+            ? items.map((item, idx) => {
+                const code = item.orderCode || item.OrderCode || item.rawCode || "—";
+                const st = item.stationName || item.stationId || "—";
+                const when = item.packedAt || item.startedAt || item.createdAt;
+                const done = item.status === "completed";
+                return `
+                  <button type="button" class="order-item" data-res-idx="${idx}">
+                    <span class="order-item-main">
+                      <b class="order-item-code">${esc(code)}</b>
+                      <span class="order-item-sub"><span>Bàn: ${esc(st)}</span><span>${fmtDate(when)}</span></span>
+                    </span>
+                    <span class="tag ${done ? "good" : "warn"}">${done ? "Đã đóng" : "Đang ghi"}</span>
+                  </button>
+                `;
+              }).join("")
+            : `<div class="empty-box">Không tìm thấy đơn khớp "${esc(q)}" (đã quét ${data.scannedRecords || 0}/${data.totalRecords || 0} đơn).</div>`;
+
+          listEl.querySelectorAll("[data-res-idx]").forEach(b => {
+            b.addEventListener("click", () => {
+              listEl.querySelectorAll(".order-item").forEach(x => x.classList.remove("active"));
+              b.classList.add("active");
+              const picked = lastSearchResults[Number(b.dataset.resIdx)];
+              if (picked) openOrderObject(picked);
+            });
+          });
+        }
+
+        if (items.length === 1) {
+          const firstBtn = listEl?.querySelector(".order-item");
+          if (firstBtn) firstBtn.classList.add("active");
+          await openOrderObject(items[0]);
+        } else if (items.length > 1) {
+          toast(`Tìm thấy ${items.length} đơn hàng. Chọn đơn ở cột trái.`);
+        }
+      } catch (err) {
+        toast(err.message || "Lỗi khi tìm kiếm.", true);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "🔍 Tìm"; }
+      }
+    }
+
+    async function selectOrderByCode(code) {
       if (!code) return;
-      setStore(HISTORY, [{ code, at: new Date().toISOString() }, ...getStore(HISTORY).filter(i => i.code !== code)].slice(0, 20));
-    }
-    
-    function toggleBookmark() {
-      const code = selectedOrder?.orderCode || selectedOrder?.OrderCode;
-      if (!code) return;
-      let items = getStore(BOOKMARKS);
-      if (items.some(i => i.code === code)) items = items.filter(i => i.code !== code);
-      else items.unshift({ code, at: new Date().toISOString(), station: selectedSession?.stationName });
-      setStore(BOOKMARKS, items);
-      updateBookmarkUI();
-      showToast(items.some(i => i.code === code) ? "Đã lưu đơn" : "Đã bỏ lưu");
+      toast(`Đang tải đơn ${code}…`);
+      try {
+        const data = await api("order?code=" + encodeURIComponent(code));
+        await openOrderObject(data, code);
+      } catch (err) {
+        toast(err.message || "Không tải được đơn hàng.", true);
+      }
     }
 
-    function updateBookmarkUI() {
-      const items = getStore(BOOKMARKS);
-      const code = selectedOrder?.orderCode || selectedOrder?.OrderCode;
-      const isSaved = code && items.some(i => i.code === code);
-      const btn = $("btnSaveOrder");
-      btn.style.background = isSaved ? "var(--warning)" : "transparent";
-      btn.style.color = isSaved ? "white" : "inherit";
-      $("bookmarkBadge").textContent = items.length;
-      $("bookmarkBadge").classList.toggle("hidden", items.length === 0);
+    async function openOrderObject(data, fallbackCode = "") {
+      const order = data?.order || data?.data?.order || data;
+      const code = order?.orderCode || order?.OrderCode || order?.rawCode || fallbackCode;
+      if (!Array.isArray(order?.sessions) || order.sessions.length === 0) {
+        try {
+          const full = await api("order?code=" + encodeURIComponent(code));
+          currentOrder = full?.order || full?.data?.order || full;
+        } catch {
+          currentOrder = order;
+        }
+      } else {
+        currentOrder = order;
+      }
+
+      currentSessions = Array.isArray(currentOrder?.sessions) && currentOrder.sessions.length
+        ? currentOrder.sessions
+        : [currentOrder];
+      currentSession = currentSessions[0];
+
+      show("emptyState", false);
+      show("orderWorkspace", true);
+
+      addHistory(code, currentSession?.stationName || currentOrder?.stationName || "");
+      updateSaveButton();
+      renderOrderHeader();
+      renderSessionBar();
+      loadCurrentSessionVideo();
     }
 
-    function openSidebar(type) {
-      $("sidebarTitle").textContent = type === 'history' ? "Lịch sử tìm kiếm" : "Đơn đã đánh dấu";
-      const items = getStore(type === 'history' ? HISTORY : BOOKMARKS);
-      $("sidebarList").innerHTML = items.length ? items.map(item => `
-        <button class="result-item" onclick="loadOrder('${item.code}')">
-          <div><b>${item.code}</b><small>${formatTime(item.at)} ${item.station ? '· ' + item.station : ''}</small></div>
-        </button>
-      `).join("") : `<div style="text-align:center; color:gray; padding:20px;">Trống</div>`;
-      $("sidebar").classList.add("open");
-      $("sidebarScrim").classList.add("visible");
+    function renderOrderHeader() {
+      const s = currentSession || currentOrder || {};
+      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode || "—";
+      setText("orderTitle", code);
+
+      const status = s.status || currentOrder?.status || "completed";
+      const tag = $("orderStatusTag");
+      if (tag) {
+        tag.textContent = status === "completed" ? "Đã đóng gói" : status === "recording" ? "Đang ghi hình" : status;
+        tag.className = "tag " + (status === "completed" ? "good" : "warn");
+      }
+
+      setText("orderStation", `👤 Bàn: ${s.stationName || s.stationId || "—"}`);
+      setText("orderTime", `🕒 ${fmtDate(s.packedAt || s.startedAt || s.createdAt)}`);
+      setText("orderDuration", `⏱️ ${s.durationSec ? s.durationSec + " giây" : "—"}`);
+
+      const sId = s.sessionId || s.id || "";
+      const dl = $("btnDownloadMp4");
+      if (dl && sId) {
+        dl.href = `/api/download?sessionId=${encodeURIComponent(sId)}`;
+        dl.download = `ASCAM-${code}-${sId}.mp4`;
+      }
     }
 
-    function closeSidebar() {
-      $("sidebar").classList.remove("open");
-      $("sidebarScrim").classList.remove("visible");
+    function renderSessionBar() {
+      const bar = $("sessionBar");
+      if (!bar) return;
+      if (currentSessions.length <= 1) {
+        bar.classList.add("hidden");
+        return;
+      }
+      bar.classList.remove("hidden");
+      bar.innerHTML = `<span style="font-size:11px;color:var(--muted);font-weight:700">Phiên ghi hình (${currentSessions.length}):</span>` +
+        currentSessions.map((s, idx) => {
+          const id = String(s.sessionId || s.id || idx + 1);
+          return `<button type="button" class="sess-btn ${idx === 0 ? "active" : ""}" data-sess-idx="${idx}">#${esc(id.slice(-5))} (${esc(s.durationSec ?? "—")}s)</button>`;
+        }).join("");
+
+      bar.querySelectorAll("[data-sess-idx]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          bar.querySelectorAll(".sess-btn").forEach(x => x.classList.remove("active"));
+          btn.classList.add("active");
+          currentSession = currentSessions[Number(btn.dataset.sessIdx)];
+          renderOrderHeader();
+          loadCurrentSessionVideo();
+        });
+      });
     }
 
-    $("btnCloseSidebar").onclick = $("sidebarScrim").onclick = closeSidebar;
+    // BỘ ĐỒNG BỘ CANVAS TÁCH 2 MÀN HÌNH SONG SONG (2B - ZERO EXTRA BANDWIDTH)
+    function drawWaybillCanvas() {
+      const video = $("mainVideo");
+      const canvas = $("waybillCanvas");
+      if (!video || !canvas || video.readyState < 2) return;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return;
 
-    // --- TÌM KIẾM & RENDER ĐƠN ---
-    // --- XỬ LÝ VIDEO (ƯU TIÊN P2P/CDN INSTANT STREAM + SMART CROP TOÀN CẢNH / VẬN ĐƠN) ---
-    let activeStreamType = null; // 'p2p' | 'mp4'
-    let activeSessionId = null;
-
-    function resetPlayer() {
-      activeStreamType = null;
-      activeSessionId = null;
-      $("emptyPlayer").classList.remove("hidden");
-      $("loadingOverlay").classList.add("hidden");
-      $("playerWrapper").dataset.crop = "full";
-      const v = $("videoPlayer");
-      v.onerror = null;
-      v.onloadeddata = null;
-      v.pause();
-      v.removeAttribute("src");
-      v.classList.add("hidden");
-      const f = $("shareFrame");
-      f.onload = null;
-      f.src = "about:blank";
-      f.classList.add("hidden");
-      $("btnOpenTab").classList.add("hidden");
-      document.querySelectorAll(".cam-btn").forEach(b => b.classList.remove("active"));
+      // Nửa dưới (từ 50% đến 100% chiều cao video gốc) là Camera Vận đơn QR
+      const halfH = Math.floor(vh / 2);
+      if (canvas.width !== vw || canvas.height !== halfH) {
+        canvas.width = vw;
+        canvas.height = halfH;
+      }
+      const ctx = canvas.getContext("2d", { alpha: false });
+      if (ctx) {
+        ctx.drawImage(video, 0, halfH, vw, vh - halfH, 0, 0, vw, halfH);
+      }
     }
 
-    function getInstantShareUrl(session) {
+    function startSyncLoop() {
+      cancelAnimationFrame(rafId);
+      const tick = () => {
+        const video = $("mainVideo");
+        if (video && !video.paused && !video.ended) {
+          drawWaybillCanvas();
+          rafId = requestAnimationFrame(tick);
+        }
+      };
+      rafId = requestAnimationFrame(tick);
+    }
+
+    // LẤY NHANH SHAREURL CDN/P2P CÓ SẴN TRONG ĐƠN HÀNG (1A)
+    function getExistingShareUrl(session) {
       const now = Date.now() + 30000;
       const links = [
         ...(Array.isArray(session?.shareLinks) ? session.shareLinks : []),
-        ...(Array.isArray(selectedOrder?.shareLinks) ? selectedOrder.shareLinks : [])
+        ...(Array.isArray(currentOrder?.shareLinks) ? currentOrder.shareLinks : []),
       ];
-      const validLink = links.find(l => l?.shareUrl && (!l.expiresAt || new Date(l.expiresAt).getTime() > now));
-      if (validLink) return validLink.shareUrl;
-
-      const direct = session?.shareUrl || session?.videoUrl || session?.VideoUrl || selectedOrder?.shareUrl || selectedOrder?.videoUrl || selectedOrder?.VideoUrl;
-      const exp = session?.shareExpiresAt || selectedOrder?.shareExpiresAt;
-      if (direct && (!exp || new Date(exp).getTime() > now)) return direct;
+      for (const l of links) {
+        if (l?.shareUrl && (!l.expiresAt || new Date(l.expiresAt).getTime() > now)) {
+          return l.shareUrl;
+        }
+      }
+      const direct = session?.shareUrl || session?.videoUrl || session?.VideoUrl || currentOrder?.shareUrl || currentOrder?.videoUrl || currentOrder?.VideoUrl;
+      const exp = session?.shareExpiresAt || currentOrder?.shareExpiresAt;
+      if (direct && (!exp || new Date(exp).getTime() > now)) {
+        return direct;
+      }
       return null;
     }
 
-    async function playCam(mode) {
-      if (!selectedSession || selectedSession.status === "recording") return;
-      currentMode = mode;
-      document.querySelectorAll(".cam-btn[data-cam]").forEach(b => b.classList.toggle("active", b.dataset.cam === mode));
-      $("emptyPlayer").classList.add("hidden");
+    async function ensureShareUrl(session) {
+      const cached = getExistingShareUrl(session);
+      if (cached) return cached;
+      const code = currentOrder?.orderCode || currentOrder?.OrderCode || currentOrder?.rawCode;
+      const sessionId = session?.sessionId || session?.id;
+      const res = await api("share", {
+        method: "POST",
+        timeoutMs: 12000,
+        body: JSON.stringify({ orderCode: code, sessionId, role: "overview", storage: "p2p" }),
+      });
+      if (res?.shareUrl) {
+        session.shareUrl = res.shareUrl;
+        return res.shareUrl;
+      }
+      throw new Error("Không lấy được link CDN/P2P.");
+    }
 
-      const wrapper = $("playerWrapper");
-      const v = $("videoPlayer");
-      const f = $("shareFrame");
-      const loader = $("loadingOverlay");
-      const sid = String(selectedSession.sessionId || selectedSession.id);
+    function setWaybillZoom(z) {
+      waybillZoom = Math.min(3.5, Math.max(1, Number(z.toFixed(2))));
+      const canvas = $("waybillCanvas");
+      if (canvas) canvas.style.transform = `scale(${waybillZoom})`;
+      const btn = $("btnZoomWaybill");
+      if (btn) btn.textContent = waybillZoom > 1 ? `🔍 ${waybillZoom}x (Reset)` : "🔍 Zoom QR";
+    }
 
-      // 1. Nút Toàn cảnh / Vận đơn / 2 Góc: Chuyển góc TỨC THÌ (0ms) bằng Viewport Zoom & ưu tiên luồng P2P/CDN có sẵn
-      if (mode === "overview" || mode === "waybill" || mode === "full") {
-        wrapper.dataset.crop = mode;
+    // CHUYỂN CHẾ ĐỘ XEM (0 GIÂY - KHÔNG BAO GIỜ LOAD LẠI VIDEO)
+    async function applyViewMode(mode) {
+      currentViewMode = mode;
+      try { localStorage.setItem(KEY_PREF_MODE, mode); } catch {}
 
-        // Nếu luồng của đúng session này đang chạy sẵn rồi (dù là P2P hay MP4), chỉ đổi góc cắt 0ms, KHÔNG tải lại video!
-        if (activeSessionId === sid && (activeStreamType === "p2p" || activeStreamType === "mp4")) {
-          return;
+      ["Dual", "Overview", "Waybill", "P2P"].forEach(k => {
+        $(`viewMode${k}`)?.classList.toggle("active", k.toLowerCase() === mode);
+      });
+
+      const dualStage = $("dualStage");
+      const video = $("mainVideo");
+      const frame = $("p2pFrame");
+
+      if (mode === "p2p") {
+        if (video) video.pause();
+        show("dualStage", false);
+        show("html5Controls", false);
+        show("p2pStage", true);
+
+        try {
+          const shareUrl = await ensureShareUrl(currentSession);
+          if (frame && frame.src !== shareUrl) frame.src = shareUrl;
+        } catch (err) {
+          toast(err.message, true);
         }
-
-        // Bắt đầu mở luồng P2P/CDN tức thì (không qua /api/stream ghép file chậm chạp)
-        v.pause();
-        v.removeAttribute("src");
-        v.classList.add("hidden");
-        f.classList.remove("hidden");
-
-        let shareUrl = getInstantShareUrl(selectedSession);
-        if (!shareUrl) {
-          loader.classList.remove("hidden");
-          $("loadingText").textContent = "Đang lấy luồng phát nhanh từ ASCAM...";
-          try {
-            const res = await api("share", {
-              method: "POST",
-              body: JSON.stringify({
-                orderCode: selectedOrder.orderCode || selectedOrder.OrderCode,
-                sessionId: sid,
-                role: "overview",
-                mode: "p2p"
-              })
-            });
-            shareUrl = res.shareUrl;
-            selectedSession.shareUrl = shareUrl;
-          } catch (e) {
-            loader.classList.add("hidden");
-            showToast("Chuyển sang luồng MP4 dự phòng...");
-            playCam("merged");
-            return;
-          }
-        }
-
-        loader.classList.remove("hidden");
-        $("loadingText").textContent = "Đang nạp khung hình...";
-        f.onload = () => loader.classList.add("hidden");
-        setTimeout(() => loader.classList.add("hidden"), 3500);
-
-        f.src = shareUrl;
-        activeStreamType = "p2p";
-        activeSessionId = sid;
-
-        const openBtn = $("btnOpenTab");
-        openBtn.href = shareUrl;
-        openBtn.classList.remove("hidden");
         return;
       }
 
-      // 2. Nút MP4: Chỉ khi bấm rõ vào MP4 mới gọi /api/stream
-      if (mode === "merged") {
-        wrapper.dataset.crop = "full";
-        f.src = "about:blank";
-        f.classList.add("hidden");
-        v.classList.remove("hidden");
+      // Chế độ 2B (Dual) hoặc 1 màn hình (Overview / Waybill)
+      show("p2pStage", false);
+      show("dualStage", true);
+      show("html5Controls", true);
 
-        loader.classList.remove("hidden");
-        $("loadingText").textContent = "Đang tải file MP4 từ máy cửa hàng (có thể mất 10-30s)...";
-
-        v.onloadeddata = () => loader.classList.add("hidden");
-        v.onerror = () => {
-          loader.classList.add("hidden");
-          showToast("Không tải được MP4 trực tiếp, chuyển về P2P", true);
-        };
-
-        v.src = `/api/stream?sessionId=${encodeURIComponent(sid)}`;
-        activeStreamType = "mp4";
-        activeSessionId = sid;
-        v.play().catch(() => {});
+      if (dualStage) {
+        dualStage.classList.remove("single-overview", "single-waybill");
+        if (mode === "overview") dualStage.classList.add("single-overview");
+        if (mode === "waybill") dualStage.classList.add("single-waybill");
       }
+
+      setText("btnExpandOverview", mode === "overview" ? "⤡ 2 Màn hình" : "⤢ Phóng to");
+      setText("btnExpandWaybill", mode === "waybill" ? "⤡ 2 Màn hình" : "⤢ Phóng to");
+
+      ensureHtml5VideoLoaded();
+      drawWaybillCanvas();
     }
 
-    // --- EVENTS ---
-    $("loginForm").onsubmit = async e => {
-      e.preventDefault();
-      try {
-        await api("login", { method: "POST", body: JSON.stringify({ password: $("password").value }) });
-        setView('app');
-      } catch (e) { showToast(e.message, true); }
-    };
-    $("btnLogout").onclick = () => api("logout", { method: "POST" }).finally(() => setView('login'));
-    $("searchForm").onsubmit = e => { e.preventDefault(); search($("query").value); };
-    $("btnHistory").onclick = () => openSidebar('history');
-    $("btnBookmarks").onclick = () => openSidebar('bookmarks');
-    $("btnSaveOrder").onclick = toggleBookmark;
-    
-    document.querySelectorAll(".cam-btn[data-cam]").forEach(btn => {
-      btn.onclick = () => playCam(btn.dataset.cam);
-    });
-    
-    // Global style for spinner
-    document.head.insertAdjacentHTML("beforeend", `<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>`);
+    function ensureHtml5VideoLoaded() {
+      const video = $("mainVideo");
+      if (!video || !currentSession) return;
+      const sId = String(currentSession.sessionId || currentSession.id || "");
+      if (!sId) return;
 
-    // Init
-    api("me").then(() => setView('app')).catch(() => setView('login'));
-    updateBookmarkUI();
+      // Nếu đã nạp đúng session này rồi thì phát tiếp ngay, tuyệt đối không gán lại src
+      if (loadedStreamSessionId === sId && video.getAttribute("src")) {
+        if (video.paused) video.play().catch(() => {});
+        return;
+      }
+
+      loadedStreamSessionId = sId;
+      show("videoLoadingOverlay", true);
+      setText("videoLoadingText", "Đang mở luồng video 2 góc cam…");
+      video.src = `/api/stream?sessionId=${encodeURIComponent(sId)}`;
+      video.load();
+      video.play().catch(() => {});
+    }
+
+    function loadCurrentSessionVideo() {
+      loadedStreamSessionId = null;
+      setWaybillZoom(1);
+      const frame = $("p2pFrame");
+      if (frame) frame.src = "about:blank";
+
+      if (currentSession?.status === "recording") {
+        toast("Đơn này đang ghi hình tại bàn đóng gói.", true);
+        return;
+      }
+
+      applyViewMode(currentViewMode);
+    }
+
+    // KHỞI TẠO SỰ KIỆN
+    document.addEventListener("DOMContentLoaded", async () => {
+      renderSideLists();
+
+      // Đăng nhập / Đăng xuất
+      $("loginForm")?.addEventListener("submit", async e => {
+        e.preventDefault();
+        setText("loginErr", "");
+        const password = $("loginPass")?.value || "";
+        const btn = $("loginBtn");
+        if (btn) btn.disabled = true;
+        try {
+          await api("login", { method: "POST", body: JSON.stringify({ password }) });
+          if ($("loginPass")) $("loginPass").value = "";
+          show("loginScreen", false);
+          show("appScreen", true);
+          checkStatus();
+        } catch (err) {
+          setText("loginErr", err.message);
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
+
+      $("btnLogout")?.addEventListener("click", async () => {
+        await api("logout", { method: "POST" }).catch(() => {});
+        show("appScreen", false);
+        show("loginScreen", true);
+      });
+
+      // Tìm kiếm
+      $("searchForm")?.addEventListener("submit", e => {
+        e.preventDefault();
+        doSearch($("searchInput")?.value || "");
+      });
+
+      // Chuyển tab cột trái
+      $("tabResults")?.addEventListener("click", () => switchTab("results"));
+      $("tabHistory")?.addEventListener("click", () => switchTab("history"));
+      $("tabSaved")?.addEventListener("click", () => switchTab("saved"));
+
+      $("btnClearHistory")?.addEventListener("click", () => {
+        try { localStorage.removeItem(KEY_HISTORY); } catch {}
+        renderSideLists();
+      });
+
+      // Nút trên thanh Header đơn hàng
+      $("btnCopyCode")?.addEventListener("click", () => {
+        const code = currentOrder?.orderCode || currentOrder?.OrderCode || "";
+        if (code && navigator.clipboard) {
+          navigator.clipboard.writeText(code);
+          toast(`Đã copy: ${code}`);
+        }
+      });
+
+      $("btnSaveOrder")?.addEventListener("click", toggleSaveCurrentOrder);
+
+      $("btnOpenShareTab")?.addEventListener("click", async () => {
+        if (!currentSession) return;
+        try {
+          const url = await ensureShareUrl(currentSession);
+          window.open(url, "_blank", "noopener");
+        } catch (err) {
+          toast(err.message, true);
+        }
+      });
+
+      // Chuyển chế độ xem 2B / 1A
+      $("viewModeDual")?.addEventListener("click", () => applyViewMode("dual"));
+      $("viewModeOverview")?.addEventListener("click", () => applyViewMode("overview"));
+      $("viewModeWaybill")?.addEventListener("click", () => applyViewMode("waybill"));
+      $("viewModeP2P")?.addEventListener("click", () => applyViewMode("p2p"));
+
+      $("btnExpandOverview")?.addEventListener("click", () => {
+        applyViewMode(currentViewMode === "overview" ? "dual" : "overview");
+      });
+      $("btnExpandWaybill")?.addEventListener("click", () => {
+        applyViewMode(currentViewMode === "waybill" ? "dual" : "waybill");
+      });
+
+      // Zoom cận cảnh mã QR Vận đơn
+      $("btnZoomWaybill")?.addEventListener("click", () => {
+        setWaybillZoom(waybillZoom > 1 ? 1 : 2.2);
+      });
+      $("waybillViewport")?.addEventListener("wheel", e => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.25 : -0.25;
+        setWaybillZoom(waybillZoom + delta);
+      }, { passive: false });
+
+      // Sự kiện đồng bộ Video & Canvas
+      const video = $("mainVideo");
+      const slider = $("seekSlider");
+
+      if (video) {
+        video.addEventListener("loadeddata", () => {
+          show("videoLoadingOverlay", false);
+          drawWaybillCanvas();
+        });
+        video.addEventListener("canplay", () => {
+          show("videoLoadingOverlay", false);
+          drawWaybillCanvas();
+        });
+        video.addEventListener("playing", () => {
+          show("videoLoadingOverlay", false);
+          setText("btnPlayPause", "⏸️ Dừng");
+          startSyncLoop();
+        });
+        video.addEventListener("pause", () => {
+          setText("btnPlayPause", "▶️ Phát");
+          cancelAnimationFrame(rafId);
+          drawWaybillCanvas();
+        });
+        video.addEventListener("seeked", drawWaybillCanvas);
+        video.addEventListener("timeupdate", () => {
+          drawWaybillCanvas();
+          const cur = video.currentTime || 0;
+          const dur = video.duration || currentSession?.durationSec || 0;
+          if (slider && dur > 0) slider.value = String((cur / dur) * 100);
+          setText("timeDisplay", `${fmtSec(cur)} / ${fmtSec(dur)}`);
+        });
+        video.addEventListener("waiting", () => {
+          show("videoLoadingOverlay", true);
+          setText("videoLoadingText", "Đang đệm dữ liệu…");
+        });
+        video.addEventListener("error", () => {
+          show("videoLoadingOverlay", false);
+          if (currentSession && currentViewMode !== "p2p") {
+            toast("Tự động chuyển sang luồng CDN / P2P…");
+            applyViewMode("p2p");
+          }
+        });
+      }
+
+      $("btnPlayPause")?.addEventListener("click", () => {
+        if (!video) return;
+        if (video.paused) video.play().catch(() => {});
+        else video.pause();
+      });
+
+      $("btnRew")?.addEventListener("click", () => {
+        if (video) video.currentTime = Math.max(0, (video.currentTime || 0) - 5);
+      });
+
+      $("btnFwd")?.addEventListener("click", () => {
+        if (video) video.currentTime = Math.min(video.duration || 9999, (video.currentTime || 0) + 5);
+      });
+
+      slider?.addEventListener("input", () => {
+        const dur = video?.duration || currentSession?.durationSec || 0;
+        if (video && dur > 0) {
+          video.currentTime = (Number(slider.value) / 100) * dur;
+          drawWaybillCanvas();
+        }
+      });
+
+      const speeds = [1, 1.5, 2];
+      let speedIdx = 0;
+      $("btnSpeed")?.addEventListener("click", () => {
+        speedIdx = (speedIdx + 1) % speeds.length;
+        const spd = speeds[speedIdx];
+        if (video) video.playbackRate = spd;
+        setText("btnSpeed", `${spd}x`);
+      });
+
+      async function checkStatus() {
+        try {
+          const st = await api("status", { timeoutMs: 6000 });
+          const ok = st.ascam === "connected";
+          const dot = $("statusDot");
+          if (dot) dot.className = "status-dot " + (ok ? "online" : "offline");
+          setText("statusText", ok ? "Online" : "Offline");
+        } catch {
+          setText("statusText", "Offline");
+        }
+      }
+
+      try {
+        await api("me");
+        show("loginScreen", false);
+        show("appScreen", true);
+        checkStatus();
+      } catch {
+        show("appScreen", false);
+        show("loginScreen", true);
+      }
+    });
   </script>
 </body>
 </html>
